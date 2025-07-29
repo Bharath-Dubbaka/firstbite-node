@@ -1,342 +1,122 @@
-// routes/auth.js
-const express = require("express");
-const admin = require("firebase-admin");
-const { User } = require("../models/User");
-const router = express.Router();
+// // routes/auth.js or your login endpoint
+// const express = require("express");
+// const admin = require("../config/firebase-admin");
+// const { User } = require("../models/User");
+// const router = express.Router();
 
-// Initialize Firebase Admin SDK
-const serviceAccount = require("../config/firebase-service-account.json");
-admin.initializeApp({
-   credential: admin.credential.cert(serviceAccount),
-});
+// router.post("/login", async (req, res) => {
+//    try {
+//       console.log("Login endpoint called");
+//       console.log("Headers:", req.headers);
 
-// Verify Firebase ID token middleware
-const verifyFirebaseToken = async (req, res, next) => {
-   try {
-      const idToken = req.headers.authorization?.split("Bearer ")[1];
-      if (!idToken) {
-         return res.status(401).json({ error: "No token provided" });
-      }
+//       // Get the ID token from Authorization header
+//       const authHeader = req.headers.authorization;
 
-      const decodedToken = await admin.auth().verifyIdToken(idToken);
-      req.user = decodedToken;
-      next();
-   } catch (error) {
-      return res.status(401).json({ error: "Invalid token" });
-   }
-};
+//       if (!authHeader || !authHeader.startsWith("Bearer ")) {
+//          console.log("No authorization header or invalid format");
+//          return res.status(401).json({
+//             success: false,
+//             error: "No token provided or invalid format",
+//          });
+//       }
 
-// POST /api/auth/login - Login/Register with phone OTP
-router.post("/login", verifyFirebaseToken, async (req, res) => {
-   try {
-      const { firstName, lastName, phoneNumber, email } = req.body;
-      const firebaseUID = req.user.uid;
+//       const idToken = authHeader.split("Bearer ")[1];
+//       console.log("ID Token received:", idToken ? "Present" : "Missing");
 
-      let user = await User.findOne({ firebaseUID });
+//       // Verify the ID token
+//       const decodedToken = await admin.auth().verifyIdToken(idToken);
+//       console.log("Token verified for UID:", decodedToken.uid);
+//       console.log("Token phone number:", decodedToken.phone_number);
 
-      if (!user) {
-         // Create new user
-         user = new User({
-            firstName,
-            lastName,
-            phoneNumber,
-            emailID: email,
-            firebaseUID,
-            isVerified: true,
-         });
-         await user.save();
-      }
+//       const { firstName, lastName, phoneNumber, email } = req.body;
+//       console.log("Request body:", req.body);
 
-      res.json({
-         success: true,
-         message: "Login successful",
-         user: {
-            id: user._id,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            phoneNumber: user.phoneNumber,
-            email: user.emailID,
-            isVerified: user.isVerified,
-         },
-      });
-   } catch (error) {
-      res.status(500).json({ error: error.message });
-   }
-});
+//       // Try to find existing user
+//       let user = await User.findOne({ firebaseUID: decodedToken.uid });
+//       console.log("Existing user found:", user ? "Yes" : "No");
 
-// GET /api/admin/orders - Get all orders with filters
-router.get("/orders", verifyAdminToken, async (req, res) => {
-   try {
-      const {
-         status,
-         orderType,
-         page = 1,
-         limit = 20,
-         startDate,
-         endDate,
-      } = req.query;
+//       // If user doesn't exist, create new user
+//       if (!user) {
+//          console.log("Creating new user...");
 
-      const filter = {};
-      if (status) filter.orderStatus = status;
-      if (orderType) filter.orderType = orderType;
-      if (startDate && endDate) {
-         filter.createdAt = {
-            $gte: new Date(startDate),
-            $lte: new Date(endDate),
-         };
-      }
+//          user = new User({
+//             firebaseUID: decodedToken.uid,
+//             phoneNumber: decodedToken.phone_number || phoneNumber,
+//             firstName: firstName || "",
+//             lastName: lastName || "",
+//             email: email || decodedToken.email || "",
+//             isVerified: true, // Phone is verified through Firebase
+//             createdAt: new Date(),
+//             lastLogin: new Date(),
+//          });
 
-      const orders = await Order.find(filter)
-         .populate("userId", "firstName lastName phoneNumber")
-         .populate("items.menuItem", "name price")
-         .sort({ createdAt: -1 })
-         .limit(limit * 1)
-         .skip((page - 1) * limit);
+//          await user.save();
+//          console.log("New user created:", user._id);
+//       } else {
+//          // Update last login
+//          user.lastLogin = new Date();
+//          await user.save();
+//          console.log("Existing user login updated");
+//       }
 
-      const totalOrders = await Order.countDocuments(filter);
+//       // Return success response
+//       const responseData = {
+//          success: true,
+//          user: {
+//             id: user._id,
+//             firebaseUID: user.firebaseUID,
+//             phoneNumber: user.phoneNumber,
+//             firstName: user.firstName,
+//             lastName: user.lastName,
+//             email: user.email,
+//             isVerified: user.isVerified,
+//             lastLogin: user.lastLogin,
+//          },
+//          message: "Login successful",
+//       };
 
-      res.json({
-         orders,
-         totalOrders,
-         totalPages: Math.ceil(totalOrders / limit),
-         currentPage: page,
-      });
-   } catch (error) {
-      res.status(500).json({ error: error.message });
-   }
-});
+//       console.log("Login successful for user:", user._id);
+//       res.json(responseData);
+//    } catch (error) {
+//       console.error("Login error:", error);
+//       console.error("Error details:", {
+//          code: error.code,
+//          message: error.message,
+//          stack: error.stack,
+//       });
 
-// PUT /api/admin/orders/:id/status - Update order status
-router.put("/orders/:id/status", verifyAdminToken, async (req, res) => {
-   try {
-      const { status, note } = req.body;
+//       // Handle specific Firebase errors
+//       if (error.code === "auth/id-token-expired") {
+//          return res.status(401).json({
+//             success: false,
+//             error: "Token expired",
+//             message: "Please login again",
+//          });
+//       }
 
-      const order = await Order.findById(req.params.id);
-      if (!order) {
-         return res.status(404).json({ error: "Order not found" });
-      }
+//       if (error.code === "auth/id-token-revoked") {
+//          return res.status(401).json({
+//             success: false,
+//             error: "Token revoked",
+//             message: "Please login again",
+//          });
+//       }
 
-      order.orderStatus = status;
-      order.statusHistory.push({
-         status,
-         timestamp: new Date(),
-         note: note || `Status updated to ${status} by admin`,
-      });
+//       if (error.code === "auth/invalid-id-token") {
+//          return res.status(401).json({
+//             success: false,
+//             error: "Invalid token",
+//             message: "Authentication failed",
+//          });
+//       }
 
-      if (status === "delivered") {
-         order.actualDeliveryTime = new Date();
-      }
+//       // Database or other errors
+//       return res.status(500).json({
+//          success: false,
+//          error: "Internal server error",
+//          message: "Something went wrong during authentication",
+//       });
+//    }
+// });
 
-      await order.save();
-      res.json(order);
-   } catch (error) {
-      res.status(500).json({ error: error.message });
-   }
-});
-
-// GET /api/admin/users - Get all users
-router.get("/users", verifyAdminToken, async (req, res) => {
-   try {
-      const { page = 1, limit = 20, search } = req.query;
-
-      const filter = {};
-      if (search) {
-         filter.$or = [
-            { firstName: { $regex: search, $options: "i" } },
-            { lastName: { $regex: search, $options: "i" } },
-            { phoneNumber: { $regex: search, $options: "i" } },
-            { emailID: { $regex: search, $options: "i" } },
-         ];
-      }
-
-      const users = await User.find(filter)
-         .sort({ createdAt: -1 })
-         .limit(limit * 1)
-         .skip((page - 1) * limit);
-
-      const totalUsers = await User.countDocuments(filter);
-
-      res.json({
-         users,
-         totalUsers,
-         totalPages: Math.ceil(totalUsers / limit),
-         currentPage: page,
-      });
-   } catch (error) {
-      res.status(500).json({ error: error.message });
-   }
-});
-
-// POST /api/admin/menu - Add new menu item
-router.post("/menu", verifyAdminToken, async (req, res) => {
-   try {
-      if (!req.admin.permissions.includes("menu")) {
-         return res.status(403).json({ error: "Insufficient permissions" });
-      }
-
-      const menuItem = new MenuItem(req.body);
-      await menuItem.save();
-      res.status(201).json(menuItem);
-   } catch (error) {
-      res.status(500).json({ error: error.message });
-   }
-});
-
-// PUT /api/admin/menu/:id - Update menu item
-router.put("/menu/:id", verifyAdminToken, async (req, res) => {
-   try {
-      if (!req.admin.permissions.includes("menu")) {
-         return res.status(403).json({ error: "Insufficient permissions" });
-      }
-
-      const menuItem = await MenuItem.findByIdAndUpdate(
-         req.params.id,
-         req.body,
-         { new: true }
-      );
-
-      if (!menuItem) {
-         return res.status(404).json({ error: "Menu item not found" });
-      }
-
-      res.json(menuItem);
-   } catch (error) {
-      res.status(500).json({ error: error.message });
-   }
-});
-
-// DELETE /api/admin/menu/:id - Delete menu item
-router.delete("/menu/:id", verifyAdminToken, async (req, res) => {
-   try {
-      if (!req.admin.permissions.includes("menu")) {
-         return res.status(403).json({ error: "Insufficient permissions" });
-      }
-
-      const menuItem = await MenuItem.findByIdAndDelete(req.params.id);
-      if (!menuItem) {
-         return res.status(404).json({ error: "Menu item not found" });
-      }
-
-      res.json({ message: "Menu item deleted successfully" });
-   } catch (error) {
-      res.status(500).json({ error: error.message });
-   }
-});
-
-// GET /api/admin/analytics - Get analytics data
-router.get("/analytics", verifyAdminToken, async (req, res) => {
-   try {
-      const { period = "7d" } = req.query;
-
-      let startDate;
-      const endDate = new Date();
-
-      switch (period) {
-         case "7d":
-            startDate = new Date(endDate - 7 * 24 * 60 * 60 * 1000);
-            break;
-         case "30d":
-            startDate = new Date(endDate - 30 * 24 * 60 * 60 * 1000);
-            break;
-         case "90d":
-            startDate = new Date(endDate - 90 * 24 * 60 * 60 * 1000);
-            break;
-         default:
-            startDate = new Date(endDate - 7 * 24 * 60 * 60 * 1000);
-      }
-
-      const [
-         revenueData,
-         orderData,
-         popularItems,
-         customerRetention,
-         subscriptionData,
-      ] = await Promise.all([
-         Order.aggregate([
-            {
-               $match: {
-                  createdAt: { $gte: startDate, $lte: endDate },
-                  orderStatus: "delivered",
-               },
-            },
-            {
-               $group: {
-                  _id: {
-                     $dateToString: { format: "%Y-%m-%d", date: "$createdAt" },
-                  },
-                  revenue: { $sum: "$finalAmount" },
-                  orders: { $sum: 1 },
-               },
-            },
-            { $sort: { _id: 1 } },
-         ]),
-         Order.aggregate([
-            {
-               $match: {
-                  createdAt: { $gte: startDate, $lte: endDate },
-               },
-            },
-            {
-               $group: {
-                  _id: "$orderStatus",
-                  count: { $sum: 1 },
-               },
-            },
-         ]),
-         MenuItem.find().sort({ orderCount: -1 }).limit(10),
-         User.aggregate([
-            {
-               $match: {
-                  createdAt: { $gte: startDate, $lte: endDate },
-               },
-            },
-            {
-               $lookup: {
-                  from: "orders",
-                  localField: "_id",
-                  foreignField: "userId",
-                  as: "orders",
-               },
-            },
-            {
-               $project: {
-                  totalOrders: { $size: "$orders" },
-                  isReturnCustomer: { $gt: [{ $size: "$orders" }, 1] },
-               },
-            },
-            {
-               $group: {
-                  _id: null,
-                  totalCustomers: { $sum: 1 },
-                  returnCustomers: {
-                     $sum: { $cond: ["$isReturnCustomer", 1, 0] },
-                  },
-               },
-            },
-         ]),
-         Subscription.aggregate([
-            {
-               $group: {
-                  _id: "$status",
-                  count: { $sum: 1 },
-               },
-            },
-         ]),
-      ]);
-
-      res.json({
-         revenueData,
-         orderData,
-         popularItems,
-         customerRetention: customerRetention[0] || {
-            totalCustomers: 0,
-            returnCustomers: 0,
-         },
-         subscriptionData,
-      });
-   } catch (error) {
-      res.status(500).json({ error: error.message });
-   }
-});
-
-module.exports = router;
+// module.exports = router;
