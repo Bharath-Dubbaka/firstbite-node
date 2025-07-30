@@ -1,39 +1,45 @@
-    // middleware/auth.js
-    const admin = require("../config/firebase-admin");
-    const { User } = require("../models/User");
+// middlewares/auth.js
+const admin = require("firebase-admin");
+const serviceAccount = require("../config/firebase-service-account.json");
 
-    const verifyFirebaseToken = async (req, res, next) => {
-    try {
-        const authHeader = req.headers.authorization;
+if (!admin.apps.length) {
+   admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+   });
+}
 
-        if (!authHeader || !authHeader.startsWith("Bearer ")) {
-            return res.status(401).json({
-                error: "No token provided or invalid format",
-            });
-        }
+const verifyFirebaseToken = async (req, res, next) => {
+   try {
+      // Get the authorization header
+      const authHeader = req.headers.authorization;
 
-        const idToken = authHeader.split("Bearer ")[1];
+      if (!authHeader) {
+         return res
+            .status(401)
+            .json({ error: "No authorization header provided" });
+      }
 
-        const decodedToken = await admin.auth().verifyIdToken(idToken);
+      // Extract token from "Bearer <token>" and remove Bearer
+      const token = authHeader.split("Bearer ")[1];
 
-        // Find user in database
-        const user = await User.findOne({ firebaseUID: decodedToken.uid });
+      if (!token) {
+         return res.status(401).json({ error: "No token provided" });
+      }
 
-        if (!user) {
-            return res.status(401).json({
-                error: "User not found",
-            });
-        }
+      // Log first 20 chars for debugging
+      console.log("Received token:", token.substring(0, 20) + "...");
 
-        req.user = decodedToken;
-        req.dbUser = user;
-        next();
-    } catch (error) {
-        console.error("Token verification error:", error);
-        return res.status(401).json({
-            error: "Invalid or expired token",
-        });
-    }
-    };
+      // Verify the Firebase token
+      const decoded = await admin.auth().verifyIdToken(token);
 
-    module.exports = { verifyFirebaseToken };
+      console.log("Token verified successfully for user:", decoded.email);
+
+      req.user = decoded; // Contains uid, email, etc.
+      next();
+   } catch (err) {
+      console.error("Token verification failed:", err.message);
+      res.status(403).json({ error: "Unauthorized", details: err.message });
+   }
+};
+
+module.exports = verifyFirebaseToken;

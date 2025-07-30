@@ -4,42 +4,50 @@ const cookieParser = require("cookie-parser");
 const cors = require("cors");
 const { User } = require("./models/User");
 const mongoose = require("mongoose");
+const verifyFirebaseToken = require("./middlewares/auth");
 
 const app = express();
+// Import routes
+const authRoutes = require("./routes/auth");
+const { userDetailsRouter } = require("./routes/userDetails");
 
 // Middleware
 app.use(express.json());
 app.use(cookieParser());
 app.use(
    cors({
-      origin: "http://localhost:3000",
+      origin: ["http://localhost:3000", "http://localhost:3001"], // Add your frontend URLs
       credentials: true,
+      methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      allowedHeaders: ["Content-Type", "Authorization"],
    })
 );
 
-// Simple test route first
-// app.get("/", (req, res) => {
-//    res.json({ message: "Server is working!" });
-// });
+// Routes
+app.use("/", userDetailsRouter);
 
-app.get("/test", (req, res) => {
+app.get("/", verifyFirebaseToken, (req, res) => {
    try {
-      console.log("GET /test called");
-      res.json({ message: "success" });
+      res.json({
+         message: "Protected route accessed",
+         user: { uid: req.user.uid, email: req.user.email },
+      });
    } catch (error) {
-      console.error("Error:", error);
-      res.status(500).json({ error: error.message });
+      console.log(error, "error");
    }
 });
 
-// Comment out any other routes temporarily
-// If you have auth routes or other routes, comment them out like this:
-// app.use("/api/auth", authRoutes);
-
-app.get("/", (req, res) => {
-   res.json({ message: "Server is working without MongoDB!" });
+// Health check
+app.get("/health", (req, res) => {
+   res.json({
+      message: "🍕 FirstBite API Server",
+      version: "1.0.0",
+      status: "running",
+      timestamp: new Date().toISOString(),
+   });
 });
 
+// Test route (no DB)
 app.get("/test", (req, res) => {
    try {
       console.log("GET /test called");
@@ -53,35 +61,46 @@ app.get("/test", (req, res) => {
    }
 });
 
-//db check
-app.get("/db-info", async (req, res) => {
+// Test MongoDB connection
+app.get("/test-db", async (req, res) => {
    try {
-      const dbName = mongoose.connection.db.databaseName;
-      const collections = await mongoose.connection.db
-         .listCollections()
-         .toArray();
       const userCount = await User.countDocuments();
-
       res.json({
-         message: "Database information",
-         databaseName: dbName,
-         collections: collections.map((c) => c.name),
+         message: "MongoDB connection working!",
          userCount: userCount,
-         connectionString:
-            "mongodb+srv://...resumeonflycluster.bdlzhop.mongodb.net/" + dbName,
+         status: "connected",
       });
    } catch (error) {
-      res.status(500).json({ error: error.message });
+      console.error("MongoDB test failed:", error);
+      res.status(500).json({
+         error: "MongoDB connection failed",
+         message: error.message,
+      });
    }
 });
 
-// Create test user (POST)
+// Create test user (POST) - Keep for testing
 app.post("/test-user", async (req, res) => {
    try {
-      console.log("Creating test user...", req.body);
+      console.log("Creating test user...");
 
-      // user data
-      const testUser = new User(req.body);
+      const testUser = new User({
+         firstName: "Test",
+         lastName: "User",
+         phoneNumber: `999999${Date.now().toString().slice(-4)}`, // Unique phone
+         emailID: "test@example.com",
+         firebaseUID: `test-${Date.now()}`,
+         addresses: [
+            {
+               type: "home",
+               addressLine1: "123 Test Street",
+               city: "Test City",
+               state: "Test State",
+               pincode: "123456",
+               isDefault: true,
+            },
+         ],
+      });
 
       const savedUser = await testUser.save();
       console.log("User created successfully:", savedUser._id);
@@ -89,14 +108,17 @@ app.post("/test-user", async (req, res) => {
       res.json({
          message: "Test user created successfully!",
          userId: savedUser._id,
-         userData: savedUser,
+         userData: {
+            firstName: savedUser.firstName,
+            phoneNumber: savedUser.phoneNumber,
+            emailID: savedUser.emailID,
+         },
       });
    } catch (error) {
       console.error("Error creating user:", error);
       res.status(500).json({
          error: "Failed to create user",
          message: error.message,
-         details: error.errors || "No additional details",
       });
    }
 });
@@ -104,7 +126,17 @@ app.post("/test-user", async (req, res) => {
 // Get all users
 app.get("/users", async (req, res) => {
    try {
-      const users = await User.find({});
+      const users = await User.find(
+         {},
+         {
+            firstName: 1,
+            lastName: 1,
+            phoneNumber: 1,
+            emailID: 1,
+            createdAt: 1,
+            registrationSource: 1,
+         }
+      ).sort({ createdAt: -1 });
 
       res.json({
          message: "Users retrieved successfully",
@@ -120,22 +152,67 @@ app.get("/users", async (req, res) => {
    }
 });
 
-// Start server without MongoDB first
+// Delete test users (cleanup)
+app.delete("/test-users", async (req, res) => {
+   try {
+      const result = await User.deleteMany({
+         firebaseUID: { $regex: /^test-/ },
+      });
 
-const PORT = 9999;
-
-app.listen(PORT, () => {
-   console.log(`🚀 Server running on http://localhost:${PORT}`);
-   console.log(`📍 Test: http://localhost:${PORT}/test`);
+      res.json({
+         message: "Test users deleted",
+         deletedCount: result.deletedCount,
+      });
+   } catch (error) {
+      console.error("Error deleting users:", error);
+      res.status(500).json({
+         error: "Failed to delete users",
+         message: error.message,
+      });
+   }
 });
 
+// 404 handler
+app.use("404", (req, res) => {
+   console.log("404 - Route not found:", req.method, req.originalUrl);
+   res.status(404).json({
+      success: false,
+      error: "ROUTE_NOT_FOUND",
+      message: `Route ${req.method} ${req.originalUrl} not found`,
+   });
+});
+
+// Global error handling middleware
+app.use((error, req, res, next) => {
+   console.error("Global error handler:", error);
+   res.status(500).json({
+      success: false,
+      error: "SERVER_ERROR",
+      message: "Something went wrong!",
+   });
+});
+
+const PORT = process.env.PORT || 9999;
+
+// Connect to MongoDB and start server
 connectDB()
    .then(() => {
-      console.log("✅ MongoDB connected");
+      console.log("✅ MongoDB connected successfully");
       app.listen(PORT, () => {
-         console.log(`🚀 Server running on http://localhost:${PORT}`);
+         console.log(
+            `\n🚀 FirstBite Server is running on http://localhost:${PORT}`
+         );
+         console.log(`\n📱 Auth Endpoints:`);
+         console.log(`   • POST http://localhost:${PORT}/auth/verify-otp`);
+         console.log(`   • GET  http://localhost:${PORT}/auth/me`);
+         console.log(`   • POST http://localhost:${PORT}/auth/update-profile`);
+         console.log(`   • POST http://localhost:${PORT}/auth/logout`);
+         console.log(`\n🧪 Test Endpoints:`);
+         console.log(`   • GET  http://localhost:${PORT}/test-db`);
+         console.log(`   • GET  http://localhost:${PORT}/users`);
       });
    })
    .catch((err) => {
-      console.error("❌ MongoDB connection failed:", err);
+      console.error("❌ MongoDB connection failed:", err.message);
+      process.exit(1);
    });

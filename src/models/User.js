@@ -22,7 +22,8 @@ const userSchema = new mongoose.Schema(
          unique: true,
          validate: {
             validator: function (v) {
-               return /^[6-9]\d{9}$/.test(v); // Indian mobile number format
+               // Accept both +91 and without +91 format
+               return /^(\+91)?[6-9]\d{9}$/.test(v);
             },
             message: "Please enter a valid Indian mobile number",
          },
@@ -92,13 +93,26 @@ const userSchema = new mongoose.Schema(
       },
       isVerified: {
          type: Boolean,
-         default: false,
+         default: true, // Auto-verified when using Firebase OTP
+      },
+      lastLogin: {
+         type: Date,
+         default: Date.now,
+      },
+      registrationSource: {
+         type: String,
+         enum: ["mobile_otp", "email", "social"],
+         default: "mobile_otp",
       },
    },
    {
       timestamps: true,
    }
 );
+
+// Index for better query performance
+// userSchema.index({ firebaseUID: 1 });
+// userSchema.index({ phoneNumber: 1 });
 
 const User = mongoose.model("User", userSchema);
 
