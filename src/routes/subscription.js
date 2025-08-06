@@ -8,7 +8,7 @@
 // // POST /api/subscriptions - Create new subscription
 // router.post("/", verifyFirebaseToken, async (req, res) => {
 //    try {
-//       const user = await User.findOne({ firebaseUID: req.user.uid });
+//       const user = await User.findOne({ uid: req.user.uid });
 //       if (!user) {
 //          return res.status(404).json({ error: "User not found" });
 //       }
@@ -28,7 +28,7 @@
 // // GET /api/subscriptions - Get user's subscriptions
 // router.get("/", verifyFirebaseToken, async (req, res) => {
 //    try {
-//       const user = await User.findOne({ firebaseUID: req.user.uid });
+//       const user = await User.findOne({ uid: req.user.uid });
 //       const subscriptions = await Subscription.find({ userId: user._id }).sort({
 //          createdAt: -1,
 //       });
@@ -42,7 +42,7 @@
 // // PUT /api/subscriptions/:id/pause - Pause subscription
 // router.put("/:id/pause", verifyFirebaseToken, async (req, res) => {
 //    try {
-//       const user = await User.findOne({ firebaseUID: req.user.uid });
+//       const user = await User.findOne({ uid: req.user.uid });
 //       const subscription = await Subscription.findOneAndUpdate(
 //          { _id: req.params.id, userId: user._id },
 //          { status: "paused" },
@@ -62,7 +62,7 @@
 // // PUT /api/subscriptions/:id/resume - Resume subscription
 // router.put("/:id/resume", verifyFirebaseToken, async (req, res) => {
 //    try {
-//       const user = await User.findOne({ firebaseUID: req.user.uid });
+//       const user = await User.findOne({ uid: req.user.uid });
 //       const subscription = await Subscription.findOneAndUpdate(
 //          { _id: req.params.id, userId: user._id },
 //          { status: "active" },

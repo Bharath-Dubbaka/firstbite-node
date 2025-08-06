@@ -6,7 +6,6 @@ const userSchema = new mongoose.Schema(
    {
       firstName: {
          type: String,
-         required: true,
          minLength: 2,
          maxLength: 30,
          trim: true,
@@ -16,21 +15,22 @@ const userSchema = new mongoose.Schema(
          maxLength: 30,
          trim: true,
       },
+
       phoneNumber: {
          type: String,
-         required: true,
-         unique: true,
          validate: {
             validator: function (v) {
-               // Accept both +91 and without +91 format
-               return /^(\+91)?[6-9]\d{9}$/.test(v);
+               return !v || /^[0-9]{10}$/.test(v);
             },
-            message: "Please enter a valid Indian mobile number",
+            message: "Phone number must be 10 digits",
          },
       },
-      emailID: {
+      // ✅ FIX: Use consistent field naming - 'email' instead of 'emailID'
+      email: {
          type: String,
          lowercase: true,
+         unique: true,
+         sparse: true, // Same fix for email
          trim: true,
          validate(value) {
             if (value && !validator.isEmail(value)) {
@@ -38,7 +38,21 @@ const userSchema = new mongoose.Schema(
             }
          },
       },
-      firebaseUID: {
+      // ✅ FIX: Add name field for Google login
+      name: {
+         type: String,
+         trim: true,
+      },
+      // ✅ FIX: Add picture field for Google login
+      picture: {
+         type: String,
+         validate(value) {
+            if (value && !validator.isURL(value)) {
+               throw new Error("Please enter a valid URL");
+            }
+         },
+      },
+      uid: {
          type: String,
          required: true,
          unique: true,
@@ -48,7 +62,7 @@ const userSchema = new mongoose.Schema(
          default:
             "https://cdn.pixabay.com/photo/2023/02/18/11/00/icon-7797704_640.png",
          validate(value) {
-            if (!validator.isURL(value)) {
+            if (value && !validator.isURL(value)) {
                throw new Error("Please enter a valid URL");
             }
          },
@@ -101,8 +115,8 @@ const userSchema = new mongoose.Schema(
       },
       registrationSource: {
          type: String,
-         enum: ["mobile_otp", "email", "social"],
-         default: "mobile_otp",
+         enum: ["mobile_otp", "email", "social", "google"],
+         default: "google", // Since you're using Google login primarily
       },
    },
    {
@@ -110,8 +124,10 @@ const userSchema = new mongoose.Schema(
    }
 );
 
-// Index for better query performance
-// userSchema.index({ firebaseUID: 1 });
+// ✅ Add compound index for better performance
+// userSchema.index({ uid: 1 });
+// userSchema.index({ email: 1 });
+// ✅ FIX: Create sparse index for phoneNumber
 // userSchema.index({ phoneNumber: 1 });
 
 const User = mongoose.model("User", userSchema);

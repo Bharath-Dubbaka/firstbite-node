@@ -76,7 +76,7 @@
 // // GET /api/auth/profile - Get user profile
 // router.get("/profile", verifyFirebaseToken, async (req, res) => {
 //    try {
-//       const user = await User.findOne({ firebaseUID: req.user.uid });
+//       const user = await User.findOne({ uid: req.user.uid });
 //       if (!user) {
 //          return res.status(404).json({ error: "User not found" });
 //       }
@@ -90,7 +90,7 @@
 // router.put("/profile", verifyFirebaseToken, async (req, res) => {
 //    try {
 //       const user = await User.findOneAndUpdate(
-//          { firebaseUID: req.user.uid },
+//          { uid: req.user.uid },
 //          req.body,
 //          { new: true }
 //       );

@@ -8,7 +8,7 @@
 // // POST /api/orders - Create new order
 // router.post("/", verifyFirebaseToken, async (req, res) => {
 //    try {
-//       const user = await User.findOne({ firebaseUID: req.user.uid });
+//       const user = await User.findOne({ uid: req.user.uid });
 //       if (!user) {
 //          return res.status(404).json({ error: "User not found" });
 //       }
@@ -44,7 +44,7 @@
 // // GET /api/orders - Get user's orders
 // router.get("/", verifyFirebaseToken, async (req, res) => {
 //    try {
-//       const user = await User.findOne({ firebaseUID: req.user.uid });
+//       const user = await User.findOne({ uid: req.user.uid });
 //       const orders = await Order.find({ userId: user._id })
 //          .populate("items.menuItem")
 //          .sort({ createdAt: -1 });
@@ -58,7 +58,7 @@
 // // GET /api/orders/:id - Get single order
 // router.get("/:id", verifyFirebaseToken, async (req, res) => {
 //    try {
-//       const user = await User.findOne({ firebaseUID: req.user.uid });
+//       const user = await User.findOne({ uid: req.user.uid });
 //       const order = await Order.findOne({
 //          _id: req.params.id,
 //          userId: user._id,
@@ -77,7 +77,7 @@
 // // PUT /api/orders/:id/cancel - Cancel order
 // router.put("/:id/cancel", verifyFirebaseToken, async (req, res) => {
 //    try {
-//       const user = await User.findOne({ firebaseUID: req.user.uid });
+//       const user = await User.findOne({ uid: req.user.uid });
 //       const order = await Order.findOne({
 //          _id: req.params.id,
 //          userId: user._id,
@@ -108,7 +108,7 @@
 // // POST /api/orders/:id/review - Add review
 // router.post("/:id/review", verifyFirebaseToken, async (req, res) => {
 //    try {
-//       const user = await User.findOne({ firebaseUID: req.user.uid });
+//       const user = await User.findOne({ uid: req.user.uid });
 //       const order = await Order.findOneAndUpdate(
 //          { _id: req.params.id, userId: user._id },
 //          {

@@ -48,14 +48,14 @@
 //       }
 
 //       // Check if user already exists
-//       let user = await User.findOne({ firebaseUID: decodedToken.uid });
+//       let user = await User.findOne({ uid: decodedToken.uid });
 
 //       if (!user) {
 //          // Create new user
 //          console.log("👤 Creating new user");
 
 //          user = new User({
-//             firebaseUID: decodedToken.uid,
+//             uid: decodedToken.uid,
 //             phoneNumber: phoneNumber,
 //             firstName: firstName || "",
 //             lastName: lastName || "",
@@ -90,7 +90,7 @@
 //                : "Login successful",
 //          user: {
 //             id: user._id,
-//             firebaseUID: user.firebaseUID,
+//             uid: user.uid,
 //             phoneNumber: user.phoneNumber,
 //             firstName: user.firstName,
 //             lastName: user.lastName,
@@ -159,7 +159,7 @@
 //          success: true,
 //          user: {
 //             id: user._id,
-//             firebaseUID: user.firebaseUID,
+//             uid: user.uid,
 //             phoneNumber: user.phoneNumber,
 //             firstName: user.firstName,
 //             lastName: user.lastName,
@@ -231,7 +231,7 @@
 // //       console.log("Request body:", req.body);
 
 // //       // Try to find existing user
-// //       let user = await User.findOne({ firebaseUID: decodedToken.uid });
+// //       let user = await User.findOne({ uid: decodedToken.uid });
 // //       console.log("Existing user found:", user ? "Yes" : "No");
 
 // //       // If user doesn't exist, create new user
@@ -239,7 +239,7 @@
 // //          console.log("Creating new user...");
 
 // //          user = new User({
-// //             firebaseUID: decodedToken.uid,
+// //             uid: decodedToken.uid,
 // //             phoneNumber: decodedToken.phone_number || phoneNumber,
 // //             firstName: firstName || "",
 // //             lastName: lastName || "",
@@ -263,7 +263,7 @@
 // //          success: true,
 // //          user: {
 // //             id: user._id,
-// //             firebaseUID: user.firebaseUID,
+// //             uid: user.uid,
 // //             phoneNumber: user.phoneNumber,
 // //             firstName: user.firstName,
 // //             lastName: user.lastName,

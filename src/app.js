@@ -79,64 +79,54 @@ app.get("/test-db", async (req, res) => {
    }
 });
 
-// Create test user (POST) - Keep for testing
-app.post("/test-user", async (req, res) => {
-   try {
-      console.log("Creating test user...");
+// Create test user (POST) - Keep for testing ||| outdated 
+// app.post("/test-user", async (req, res) => {
+//    try {
+//       console.log("Creating test user...");
 
-      const testUser = new User({
-         firstName: "Test",
-         lastName: "User",
-         phoneNumber: `999999${Date.now().toString().slice(-4)}`, // Unique phone
-         emailID: "test@example.com",
-         firebaseUID: `test-${Date.now()}`,
-         addresses: [
-            {
-               type: "home",
-               addressLine1: "123 Test Street",
-               city: "Test City",
-               state: "Test State",
-               pincode: "123456",
-               isDefault: true,
-            },
-         ],
-      });
+//       const testUser = new User({
+//          firstName: "Test",
+//          lastName: "User",
+//          phoneNumber: `999999${Date.now().toString().slice(-4)}`, // Unique phone
+//          emailID: "test@example.com",
+//          uid: `test-${Date.now()}`,
+//          addresses: [
+//             {
+//                type: "home",
+//                addressLine1: "123 Test Street",
+//                city: "Test City",
+//                state: "Test State",
+//                pincode: "123456",
+//                isDefault: true,
+//             },
+//          ],
+//       });
 
-      const savedUser = await testUser.save();
-      console.log("User created successfully:", savedUser._id);
+//       const savedUser = await testUser.save();
+//       console.log("User created successfully:", savedUser._id);
 
-      res.json({
-         message: "Test user created successfully!",
-         userId: savedUser._id,
-         userData: {
-            firstName: savedUser.firstName,
-            phoneNumber: savedUser.phoneNumber,
-            emailID: savedUser.emailID,
-         },
-      });
-   } catch (error) {
-      console.error("Error creating user:", error);
-      res.status(500).json({
-         error: "Failed to create user",
-         message: error.message,
-      });
-   }
-});
+//       res.json({
+//          message: "Test user created successfully!",
+//          userId: savedUser._id,
+//          userData: {
+//             firstName: savedUser.firstName,
+//             phoneNumber: savedUser.phoneNumber,
+//             emailID: savedUser.emailID,
+//          },
+//       });
+//    } catch (error) {
+//       console.error("Error creating user:", error);
+//       res.status(500).json({
+//          error: "Failed to create user",
+//          message: error.message,
+//       });
+//    }
+// });
 
 // Get all users
 app.get("/users", async (req, res) => {
    try {
-      const users = await User.find(
-         {},
-         {
-            firstName: 1,
-            lastName: 1,
-            phoneNumber: 1,
-            emailID: 1,
-            createdAt: 1,
-            registrationSource: 1,
-         }
-      ).sort({ createdAt: -1 });
+      const users = await User.find({}).sort({ createdAt: -1 });
 
       res.json({
          message: "Users retrieved successfully",
@@ -156,7 +146,7 @@ app.get("/users", async (req, res) => {
 app.delete("/test-users", async (req, res) => {
    try {
       const result = await User.deleteMany({
-         firebaseUID: { $regex: /^test-/ },
+         uid: { $regex: /^test-/ },
       });
 
       res.json({

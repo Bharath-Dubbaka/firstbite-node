@@ -1,11 +1,8 @@
+// routes/userDetails.js - FIXED VERSION
 const express = require("express");
 const userDetailsRouter = express.Router();
-// src/routes/userDetails.js
 const { User } = require("../models/User");
 const verifyFirebaseToken = require("../middlewares/auth");
-
-//WE NEED TO CREATE DEFAULT USER DETAILS ASA USER SIGN UP FOR FIRST TIME , IF USER_DETAILS EXISTS ALREADY THEN DON'T
-//ON UI SIde of things we only have one btn for signup and signin .. if user details exists we redirect to dashboard for generating new version .. if no user details already in db then create new default quota and default user details and then redirect to userFormPage to fill out more info before dashboard and generating new versions
 
 // ========== GET USER DETAILS ==========
 userDetailsRouter.get(
@@ -19,19 +16,18 @@ userDetailsRouter.get(
 
          if (!userDetails) {
             console.log("No user details found, returning empty structure");
-            // Return empty structure if no details found
             return res.json({
                success: true,
+               data: null,
                authData: {
                   uid: req.user.uid,
-                  og_email: req.user.email,
+                  email: req.user.email,
                },
-               message: "No user details found, empty structure returned",
+               message: "No user details found",
             });
          }
 
          console.log("User details fetched successfully");
-
          res.json({
             success: true,
             data: userDetails,
@@ -57,43 +53,97 @@ userDetailsRouter.post(
          console.log("Saving user details for:", req.user.uid);
          console.log("Request body keys:", Object.keys(req.body));
 
-         // Prepare update data, ensuring UID matches authenticated user
+         // ✅ FIX: Clean data and remove null/empty values
+         // ✅ Define allowed fields only (whitelist)
+         const allowedFields = [
+            "firstName",
+            "lastName",
+            "phoneNumber",
+            "picture",
+            "profilePicture",
+            "addresses",
+            "preferences",
+            "name",
+         ];
+
+         // ✅ Filter only allowed fields from body
+         const cleanData = {};
+         for (const key of allowedFields) {
+            if (
+               req.body.hasOwnProperty(key) &&
+               req.body[key] !== undefined &&
+               req.body[key] !== null &&
+               req.body[key] !== ""
+            ) {
+               cleanData[key] = req.body[key];
+            }
+         }
+
+         // ✅ Add Firebase-provided info
          const updateData = {
-            ...req.body,
-            firebaseUID: req.user.uid, // Always use authenticated user's UID
-            og_email: req.user.email, // from Auth immutable
+            ...cleanData,
+            uid: req.user.uid,
+            email: req.user.email,
+            lastLogin: new Date(),
          };
 
-         // Remove any undefined or null values at the top level
-         Object.keys(updateData).forEach((key) => {
-            if (updateData[key] === undefined) {
-               delete updateData[key];
+         console.log("Sanitized update keys:", Object.keys(updateData));
+
+         // ✅ FIX: First try to find existing user
+         let userDetails = await User.findOne({ uid: req.user.uid });
+
+         if (userDetails) {
+            // Update existing user
+            Object.assign(userDetails, updateData);
+            userDetails = await userDetails.save();
+            console.log("User details updated successfully");
+         } else {
+            // Create new user - but first check if email exists
+            const existingEmailUser = await User.findOne({
+               email: req.user.email,
+            });
+            if (existingEmailUser) {
+               return res.status(409).json({
+                  success: false,
+                  message: "Email already exists with different UID",
+                  error: "Duplicate entry",
+               });
             }
-         });
 
-         console.log("Updating with data keys:", Object.keys(updateData));
-
-         const userDetails = await User.findOneAndUpdate(
-            { firebaseUID: req.user.uid },
-            updateData,
-            {
-               new: true,
-               upsert: true, // Create if doesn't exist
-               runValidators: true,
-            }
-         );
-
-         console.log("User details saved successfully");
+            userDetails = new User(updateData);
+            userDetails = await userDetails.save();
+            console.log("User details created successfully");
+         }
 
          res.json({
             success: true,
             data: userDetails,
-            message: "User details saved successfully",
+            message: userDetails.isNew
+               ? "User created successfully"
+               : "User updated successfully",
          });
       } catch (error) {
          console.error("Error saving user details:", error);
 
-         // Handle validation errors specifically
+         // Handle duplicate key errors
+         if (error.code === 11000) {
+            const field = Object.keys(error.keyValue)[0];
+            const value = error.keyValue[field];
+
+            console.log(
+               `Duplicate key error on field: ${field} with value: ${value}`
+            );
+
+            return res.status(409).json({
+               success: false,
+               message: `${field} already exists`,
+               error: "Duplicate entry",
+               field: field,
+               value: value,
+            });
+         }
+
+         // Handle validation errors
          if (error.name === "ValidationError") {
             const validationErrors = Object.keys(error.errors).map((key) => ({
                field: key,
@@ -108,15 +158,6 @@ userDetailsRouter.post(
             });
          }
 
-         // Handle duplicate key errors
-         if (error.code === 11000) {
-            return res.status(409).json({
-               success: false,
-               message: "User details already exist",
-               error: "Duplicate entry",
-            });
-         }
-
          res.status(500).json({
             success: false,
             message: "Failed to save user details",
@@ -126,7 +167,7 @@ userDetailsRouter.post(
    }
 );
 
-// ========== DELETE USER DETAILS ========== WE CAN USE IT IN HEADER DROPDOWN so user can delete his data for privacy anytime
+// ========== DELETE USER DETAILS ==========
 userDetailsRouter.delete(
    "/api/delete/user-details",
    verifyFirebaseToken,
@@ -134,9 +175,7 @@ userDetailsRouter.delete(
       try {
          console.log("Deleting user details for:", req.user.uid);
 
-         const result = await User.findOneAndDelete({
-            uid: req.user.uid,
-         });
+         const result = await User.findOneAndDelete({ uid: req.user.uid });
 
          if (!result) {
             return res.status(404).json({
@@ -146,7 +185,6 @@ userDetailsRouter.delete(
          }
 
          console.log("User details deleted successfully");
-
          res.json({
             success: true,
             message: "User details deleted successfully",
