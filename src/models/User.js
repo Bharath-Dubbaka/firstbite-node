@@ -69,10 +69,12 @@ const userSchema = new mongoose.Schema(
       },
       addresses: [
          {
-            type: {
+            label: {
                type: String,
-               enum: ["home", "work", "other"],
-               default: "home",
+               required: true,
+               trim: true,
+               maxlength: 30,
+               default: "Home",
             },
             addressLine1: { type: String, required: true },
             addressLine2: { type: String },
@@ -83,6 +85,22 @@ const userSchema = new mongoose.Schema(
             isDefault: { type: Boolean, default: false },
          },
       ],
+      // addresses: [
+      //    {
+      //       type: {
+      //          type: String,
+      //          enum: ["home", "work", "other"],
+      //          default: "home",
+      //       },
+      //       addressLine1: { type: String, required: true },
+      //       addressLine2: { type: String },
+      //       city: { type: String, required: true },
+      //       state: { type: String, required: true },
+      //       pincode: { type: String, required: true },
+      //       landmark: { type: String },
+      //       isDefault: { type: Boolean, default: false },
+      //    },
+      // ],
       preferences: {
          cuisineTypes: [String],
          spiceLevel: {

@@ -86,7 +86,10 @@ userDetailsRouter.post(
             email: req.user.email,
             lastLogin: new Date(),
          };
-
+         // This ensures that even if name is missing in req.body, it will fallback to Google’s display name (req.user.name).
+         if (!updateData.name && req.user.name) {
+            updateData.name = req.user.name;
+         }
          console.log("Sanitized update keys:", Object.keys(updateData));
 
          // ✅ FIX: First try to find existing user
