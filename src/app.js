@@ -5,7 +5,9 @@ const cors = require("cors");
 const { User } = require("./models/User");
 const mongoose = require("mongoose");
 const verifyFirebaseToken = require("./middlewares/auth");
-
+const adminRoutes = require("./routes/admin");
+const adminMenuRoutes = require("./routes/adminMenu");
+const adminOrderRoutes = require("./routes/adminOrders");
 const app = express();
 // Import routes
 const authRoutes = require("./routes/auth");
@@ -18,13 +20,16 @@ app.use(
    cors({
       origin: ["http://localhost:3000", "http://localhost:3001"], // Add your frontend URLs
       credentials: true,
-      methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
       allowedHeaders: ["Content-Type", "Authorization"],
    })
 );
 
 // Routes
+app.use("/api/admin", adminRoutes); //admin verify , login, dashboard
 app.use("/", userDetailsRouter);
+app.use("/api/admin/menu", adminMenuRoutes); //for admin to handle items data
+app.use("/api/admin/orders", adminOrderRoutes); //for admin to get order data
 
 app.get("/", verifyFirebaseToken, (req, res) => {
    try {
@@ -79,7 +84,7 @@ app.get("/test-db", async (req, res) => {
    }
 });
 
-// Create test user (POST) - Keep for testing ||| outdated 
+// Create test user (POST) - Keep for testing ||| outdated
 // app.post("/test-user", async (req, res) => {
 //    try {
 //       console.log("Creating test user...");

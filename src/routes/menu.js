@@ -1,6 +1,6 @@
 // // routes/menu.js
 // const express = require("express");
-// const { MenuItem } = require("../models/MenuItem");
+// const { CafeMenu } = require("../models/CafeMenu");
 // const router = express.Router();
 
 // // GET /api/menu - Get all menu items
@@ -14,8 +14,8 @@
 //       if (isAvailable !== undefined)
 //          filter.isAvailable = isAvailable === "true";
 
-//       const menuItems = await MenuItem.find(filter).sort({ orderCount: -1 });
-//       res.json(menuItems);
+//       const CafeMenus = await CafeMenu.find(filter).sort({ orderCount: -1 });
+//       res.json(CafeMenus);
 //    } catch (error) {
 //       res.status(500).json({ error: error.message });
 //    }
@@ -24,11 +24,11 @@
 // // GET /api/menu/:id - Get single menu item
 // router.get("/:id", async (req, res) => {
 //    try {
-//       const menuItem = await MenuItem.findById(req.params.id);
-//       if (!menuItem) {
+//       const CafeMenu = await CafeMenu.findById(req.params.id);
+//       if (!CafeMenu) {
 //          return res.status(404).json({ error: "Menu item not found" });
 //       }
-//       res.json(menuItem);
+//       res.json(CafeMenu);
 //    } catch (error) {
 //       res.status(500).json({ error: error.message });
 //    }
@@ -37,11 +37,11 @@
 // // GET /api/menu/category/:category - Get items by category
 // router.get("/category/:category", async (req, res) => {
 //    try {
-//       const menuItems = await MenuItem.find({
+//       const CafeMenus = await CafeMenu.find({
 //          category: req.params.category,
 //          isAvailable: true,
 //       }).sort({ orderCount: -1 });
-//       res.json(menuItems);
+//       res.json(CafeMenus);
 //    } catch (error) {
 //       res.status(500).json({ error: error.message });
 //    }
