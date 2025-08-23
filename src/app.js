@@ -8,6 +8,7 @@ const verifyFirebaseToken = require("./middlewares/auth");
 const adminRoutes = require("./routes/admin");
 const adminMenuRoutes = require("./routes/adminMenu");
 const adminOrderRoutes = require("./routes/adminOrders");
+const publicMenuRoutes = require("./routes/publicMenu"); // Adjust path if needed
 const app = express();
 // Import routes
 const authRoutes = require("./routes/auth");
@@ -30,6 +31,8 @@ app.use("/api/admin", adminRoutes); //admin verify , login, dashboard
 app.use("/", userDetailsRouter);
 app.use("/api/admin/menu", adminMenuRoutes); //for admin to handle items data
 app.use("/api/admin/orders", adminOrderRoutes); //for admin to get order data
+app.use("/api/menu", publicMenuRoutes); // public menu for users
+
 
 app.get("/", verifyFirebaseToken, (req, res) => {
    try {

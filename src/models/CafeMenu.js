@@ -29,9 +29,10 @@ const cafeMenuSchema = new mongoose.Schema(
       },
 
       section: {
-         type: String,
-         required: true, // Quick Bites, Comfort Meals, etc.
+         type: String, // e.g., Veg, Non-Veg, Beverages, Specials
+         required: true,
       },
+
       rating: {
          type: Number,
          min: 0,
@@ -81,6 +82,11 @@ const cafeMenuSchema = new mongoose.Schema(
          default: 0,
       },
       tags: [String], // popular, new, bestseller, 'spicy', 'bestseller', 'vegan', 'contains-nuts' etc.
+
+      menuOrder: {
+         type: Number, // ordering within subcategory
+         default: 1,
+      },
    },
    {
       timestamps: true,
@@ -91,3 +97,10 @@ cafeMenuSchema.index({ name: "text", category: "text" }); // For search function
 
 const CafeMenu = mongoose.model("CafeMenu", cafeMenuSchema);
 module.exports = { CafeMenu };
+
+// MenuOrder Field:
+// The menuOrder field controls the display sequence of items within a category. For example:
+// javascript// In "🍗 Chicken Delicacies" category:
+// { name: "Peri Peri Fire Bites", menuOrder: 1 }      // Shows first
+// { name: "Buttermilk Crispy Tenders", menuOrder: 2 } // Shows second
+// { name: "Chicken Popcorn Tempura", menuOrder: 3 }

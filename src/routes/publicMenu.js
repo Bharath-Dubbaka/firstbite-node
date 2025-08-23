@@ -1,9 +1,23 @@
-// // routes/menu.js
-// const express = require("express");
-// const { CafeMenu } = require("../models/CafeMenu");
-// const router = express.Router();
+// routes/menu.js
+const express = require("express");
+const { CafeMenu } = require("../models/CafeMenu");
+const router = express.Router();
 
-// // GET /api/menu - Get all menu items
+// GET /api/menu - Get all menu items for the public view
+router.get("/", async (req, res) => {
+   try {
+      const items = await CafeMenu.find({ isAvailable: true }).sort({
+         category: 1,
+         createdAt: -1,
+      });
+      res.json({ success: true, length: items.length, data: items });
+   } catch (error) {
+      res.status(500).json({
+         success: false,
+         error: "Failed to fetch menu items.",
+      });
+   }
+});
 // router.get("/", async (req, res) => {
 //    try {
 //       const { category, section, isAvailable } = req.query;
@@ -47,4 +61,4 @@
 //    }
 // });
 
-// module.exports = router;
+module.exports = router;
