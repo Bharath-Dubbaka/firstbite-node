@@ -15,7 +15,7 @@ async function fixDatabase() {
          await db.collection('users').dropIndex("phoneNumber_1");
          console.log("✅ Dropped phoneNumber index");
       } catch (error) {
-         console.log("ℹ️ phoneNumber index didn't exist or already dropped");
+         console.log("ℹ️ phoneNumber index do not exist or already dropped");
       }
 
       // 2. List all indexes to verify

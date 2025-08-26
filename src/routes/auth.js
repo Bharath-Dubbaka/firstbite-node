@@ -234,7 +234,7 @@
 // //       let user = await User.findOne({ uid: decodedToken.uid });
 // //       console.log("Existing user found:", user ? "Yes" : "No");
 
-// //       // If user doesn't exist, create new user
+// //       // If user doesnt exist, create new user
 // //       if (!user) {
 // //          console.log("Creating new user...");
 

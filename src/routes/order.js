@@ -1,21 +1,25 @@
 // routes/orders.js
 const express = require("express");
 const { Order } = require("../models/Order");
-const { verifyFirebaseToken } = require("./auth");
+const verifyFirebaseToken = require("../middlewares/auth");
 const { User } = require("../models/User");
 const router = express.Router();
 
 // POST /api/orders - Create new order
 router.post("/", verifyFirebaseToken, async (req, res) => {
    try {
+      console.log("Creating order with payload:", req.body);
+
       const user = await User.findOne({ uid: req.user.uid });
       if (!user) {
+         console.log("User not found for uid:", req.user.uid);
          return res.status(404).json({ error: "User not found" });
       }
+      console.log("User found:", user._id);
 
       const orderNumber = `LFB${Date.now()}${Math.floor(Math.random() * 1000)}`;
 
-      const order = new Order({
+      const orderData = new Order({
          ...req.body,
          userId: user._id,
          orderNumber,
@@ -28,16 +32,26 @@ router.post("/", verifyFirebaseToken, async (req, res) => {
          ],
       });
 
-      await order.save();
+      console.log("Creating order with data:", orderData);
 
-      // Update user's total orders
+      const order = new Order(orderData);
+      const savedOrder = await order.save();
+
+      console.log("Order saved successfully:", savedOrder._id);
+
+      // Update users total orders
       await User.findByIdAndUpdate(user._id, {
          $inc: { totalOrders: 1 },
       });
 
-      res.status(201).json(order);
+      res.status(201).json(savedOrder);
    } catch (error) {
-      res.status(500).json({ error: error.message });
+      console.error("Order creation error:", error);
+      res.status(500).json({
+         error: error.message,
+         stack:
+            process.env.NODE_ENV === "development" ? error.stack : undefined,
+      });
    }
 });
 
@@ -45,6 +59,9 @@ router.post("/", verifyFirebaseToken, async (req, res) => {
 router.get("/", verifyFirebaseToken, async (req, res) => {
    try {
       const user = await User.findOne({ uid: req.user.uid });
+      if (!user) {
+         return res.status(404).json({ error: "User not found" });
+      }
       const orders = await Order.find({ userId: user._id })
          .populate("items.menuItem")
          .sort({ createdAt: -1 });
@@ -59,10 +76,15 @@ router.get("/", verifyFirebaseToken, async (req, res) => {
 router.get("/:id", verifyFirebaseToken, async (req, res) => {
    try {
       const user = await User.findOne({ uid: req.user.uid });
+      if (!user) {
+         return res.status(404).json({ error: "User not found" });
+      }
       const order = await Order.findOne({
          _id: req.params.id,
          userId: user._id,
-      }).populate("items.menuItem");
+      })
+         .populate("items.menuItem") // This populates the menuItem details
+         .populate("userId", "name email"); // Optional: populate user info
 
       if (!order) {
          return res.status(404).json({ error: "Order not found" });
@@ -78,6 +100,9 @@ router.get("/:id", verifyFirebaseToken, async (req, res) => {
 router.put("/:id/cancel", verifyFirebaseToken, async (req, res) => {
    try {
       const user = await User.findOne({ uid: req.user.uid });
+      if (!user) {
+         return res.status(404).json({ error: "User not found" });
+      }
       const order = await Order.findOne({
          _id: req.params.id,
          userId: user._id,
@@ -109,6 +134,9 @@ router.put("/:id/cancel", verifyFirebaseToken, async (req, res) => {
 router.post("/:id/review", verifyFirebaseToken, async (req, res) => {
    try {
       const user = await User.findOne({ uid: req.user.uid });
+      if (!user) {
+         return res.status(404).json({ error: "User not found" });
+      }
       const order = await Order.findOneAndUpdate(
          { _id: req.params.id, userId: user._id },
          {
