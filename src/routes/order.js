@@ -3,6 +3,7 @@ const express = require("express");
 const { Order } = require("../models/Order");
 const verifyFirebaseToken = require("../middlewares/auth");
 const { User } = require("../models/User");
+const { CafeMenu } = require("../models/CafeMenu");
 const router = express.Router();
 
 // POST /api/orders - Create new order
@@ -16,6 +17,29 @@ router.post("/", verifyFirebaseToken, async (req, res) => {
          return res.status(404).json({ error: "User not found" });
       }
       console.log("User found:", user._id);
+      // ✅ CHECK FOR ACTIVE ORDERS
+      const activeStatuses = [
+         "placed",
+         "confirmed",
+         "preparing",
+         "ready",
+         "dispatched",
+      ];
+      const activeOrder = await Order.findOne({
+         userId: user._id,
+         orderStatus: { $in: activeStatuses },
+      });
+
+      if (activeOrder) {
+         return res.status(400).json({
+            error: "You already have an active order being processed, if not refresh the page",
+            activeOrder: {
+               orderNumber: activeOrder.orderNumber,
+               status: activeOrder.orderStatus,
+               _id: activeOrder._id,
+            },
+         });
+      }
 
       const orderNumber = `LFB${Date.now()}${Math.floor(Math.random() * 1000)}`;
 
@@ -34,8 +58,7 @@ router.post("/", verifyFirebaseToken, async (req, res) => {
 
       console.log("Creating order with data:", orderData);
 
-      const order = new Order(orderData);
-      const savedOrder = await order.save();
+      const savedOrder = await Order.create(orderData);
 
       console.log("Order saved successfully:", savedOrder._id);
 
@@ -63,11 +86,17 @@ router.get("/", verifyFirebaseToken, async (req, res) => {
          return res.status(404).json({ error: "User not found" });
       }
       const orders = await Order.find({ userId: user._id })
-         .populate("items.menuItem")
+         .populate({
+            path: "items.menuItem", // ✅ FIXED: Correct path
+            model: "CafeMenu", // ✅ FIXED: Correct model name
+            select:
+               "name description price image category section isVegetarian spiceLevel preparationTime rating",
+         })
          .sort({ createdAt: -1 });
 
       res.json(orders);
    } catch (error) {
+      console.error("Error fetching orders:", error);
       res.status(500).json({ error: error.message });
    }
 });
@@ -83,16 +112,34 @@ router.get("/:id", verifyFirebaseToken, async (req, res) => {
          _id: req.params.id,
          userId: user._id,
       })
-         .populate("items.menuItem") // This populates the menuItem details
-         .populate("userId", "name email"); // Optional: populate user info
-
+         .populate({
+            path: "items.menuItem", // ✅ FIXED: Correct path
+            model: "CafeMenu", // ✅ FIXED: Correct model name
+            select:
+               "name description price image category section isVegetarian spiceLevel preparationTime rating",
+         })
+         .populate({
+            path: "userId",
+            model: "User",
+            select: "name email firstName lastName",
+         });
       if (!order) {
+         console.log(
+            "Order not found for ID:",
+            req.params.id,
+            "and user:",
+            user._id
+         );
          return res.status(404).json({ error: "Order not found" });
       }
 
       res.json(order);
    } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({
+         error: error.message,
+         stack:
+            process.env.NODE_ENV === "development" ? error.stack : undefined,
+      });
    }
 });
 

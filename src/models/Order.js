@@ -22,7 +22,7 @@ const orderSchema = new mongoose.Schema(
          {
             menuItem: {
                type: mongoose.Schema.Types.ObjectId,
-               ref: "MenuItem",
+               ref: "CafeMenu", // ✅ ref "CafeMenu items
                required: true,
             },
             quantity: {
@@ -38,6 +38,7 @@ const orderSchema = new mongoose.Schema(
          },
       ],
       deliveryAddress: {
+         label: String,
          addressLine1: { type: String, required: true },
          addressLine2: { type: String },
          city: { type: String, required: true },
