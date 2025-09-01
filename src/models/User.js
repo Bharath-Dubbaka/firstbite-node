@@ -83,6 +83,8 @@ const userSchema = new mongoose.Schema(
             pincode: { type: String, required: true },
             landmark: { type: String },
             isDefault: { type: Boolean, default: false },
+            latitude: { type: Number },
+            longitude: { type: Number },
          },
       ],
       // addresses: [
