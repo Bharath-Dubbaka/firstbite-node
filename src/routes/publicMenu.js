@@ -1,4 +1,4 @@
-// routes/menu.js
+// routes/publicMenu.js
 const express = require("express");
 const { CafeMenu } = require("../models/CafeMenu");
 const router = express.Router();

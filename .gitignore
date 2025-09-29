@@ -2,6 +2,6 @@
 node_modules
 firebase-service-account.json
 **/firebase-adminsdk.json
-
+.env.local
 
 doubts.md
