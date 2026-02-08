@@ -128,7 +128,7 @@ router.get("/:id", verifyFirebaseToken, async (req, res) => {
             "Order not found for ID:",
             req.params.id,
             "and user:",
-            user._id
+            user._id,
          );
          return res.status(404).json({ error: "Order not found" });
       }
@@ -191,7 +191,7 @@ router.post("/:id/review", verifyFirebaseToken, async (req, res) => {
             review: req.body.review,
             isReviewed: true,
          },
-         { new: true }
+         { new: true },
       );
 
       if (!order) {

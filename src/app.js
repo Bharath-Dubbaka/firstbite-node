@@ -9,6 +9,7 @@ const mongoose = require("mongoose");
 const verifyFirebaseToken = require("./middlewares/auth");
 const adminRoutes = require("./routes/admin");
 const adminMenuRoutes = require("./routes/adminMenu");
+const adminInhouseOrdersRoutes = require("./routes/adminInhouseOrders");
 const adminOrderRoutes = require("./routes/adminOrders");
 const publicMenuRoutes = require("./routes/publicMenu"); // Adjust path if needed
 const ordersRoutes = require("./routes/order");
@@ -30,7 +31,7 @@ app.use(
       credentials: true,
       methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
       allowedHeaders: ["Content-Type", "Authorization"],
-   })
+   }),
 );
 
 // Routes
@@ -38,6 +39,7 @@ app.use("/api/admin", adminRoutes); //admin verify , login, dashboard
 app.use("/", userDetailsRouter);
 app.use("/api/admin/menu", adminMenuRoutes); //for admin to handle items data
 app.use("/api/admin/orders", adminOrderRoutes); //for admin to get order data
+app.use("/api/admin/inhouse", adminInhouseOrdersRoutes); //for admin to handle inhouse orders
 app.use("/api/menu", publicMenuRoutes); // public menu for users
 app.use("/api/orders", ordersRoutes);
 
@@ -55,7 +57,7 @@ app.get("/", verifyFirebaseToken, (req, res) => {
 // Health check
 app.get("/health", (req, res) => {
    res.json({
-      message: "🍕 FirstBite API Server",
+      message: "🍕 FirstByte API Server",
       version: "1.0.0",
       status: "running",
       timestamp: new Date().toISOString(),
@@ -205,7 +207,7 @@ connectDB()
       console.log("✅ MongoDB connected successfully");
       app.listen(PORT, () => {
          console.log(
-            `\n🚀 FirstBite Server is running on http://localhost:${PORT}`
+            `\n🚀 FirstByte Server is running on http://localhost:${PORT}`,
          );
          console.log(`\n📱 Auth Endpoints:`);
          console.log(`   • POST http://localhost:${PORT}/auth/verify-otp`);
