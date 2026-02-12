@@ -1,4 +1,4 @@
-// routes/adminInhouseOrders.js - Admin routes for in-house order management
+// routes/adminInhouseOrders.js - COMPLETE CORRECTED VERSION
 const express = require("express");
 const { Order } = require("../models/Order");
 const { Table } = require("../models/Table");
@@ -6,12 +6,15 @@ const { CafeMenu } = require("../models/CafeMenu");
 const { verifyAdminToken } = require("./admin");
 const router = express.Router();
 
-// All routes protected by admin authentication
 router.use(verifyAdminToken);
+
+router.use((req, res, next) => {
+   console.log(`📍 Inhouse Route Hit: ${req.method} ${req.path}`);
+   next();
+});
 
 // ========== TABLE MANAGEMENT ==========
 
-// GET /api/admin/inhouse/tables - Get all tables with current status
 router.get("/tables", async (req, res) => {
    try {
       const tables = await Table.find()
@@ -36,12 +39,9 @@ router.get("/tables", async (req, res) => {
    }
 });
 
-// POST /api/admin/inhouse/tables - Create new table
 router.post("/tables", async (req, res) => {
    try {
       const { tableNumber, capacity, location, notes } = req.body;
-
-      // Check if table number already exists
       const existingTable = await Table.findOne({ tableNumber });
       if (existingTable) {
          return res.status(400).json({
@@ -50,13 +50,7 @@ router.post("/tables", async (req, res) => {
          });
       }
 
-      const table = new Table({
-         tableNumber,
-         capacity,
-         location,
-         notes,
-      });
-
+      const table = new Table({ tableNumber, capacity, location, notes });
       await table.save();
 
       res.status(201).json({
@@ -69,57 +63,79 @@ router.post("/tables", async (req, res) => {
    }
 });
 
-// PATCH /api/admin/inhouse/tables/:tableNumber/merge - Merge tables
-router.patch("/tables/:tableNumber/merge", async (req, res) => {
+router.get("/tables/:tableNumber", async (req, res) => {
    try {
       const { tableNumber } = req.params;
-      const { mergeTables } = req.body; // Array of table numbers to merge
 
-      // Update main table
-      const mainTable = await Table.findOneAndUpdate(
-         { tableNumber },
-         {
-            status: "merged",
-            mergedWith: mergeTables,
-            tableNumber: `${tableNumber}-${mergeTables.join("-")}`,
-         },
-         { new: true },
-      );
+      const table = await Table.findOne({ tableNumber }).populate({
+         path: "currentOrderId",
+         select:
+            "orderNumber items totalAmount finalAmount orderStatus createdAt statusHistory",
+      });
 
-      // Mark merged tables as inactive
-      await Table.updateMany(
-         { tableNumber: { $in: mergeTables } },
-         { status: "inactive" },
-      );
+      if (!table) {
+         return res.status(404).json({
+            success: false,
+            error: `Table ${tableNumber} not found`,
+         });
+      }
+
+      const orderHistory = await Order.find({
+         tableNumber,
+         orderSource: "in-house",
+         orderStatus: { $in: ["completed", "cancelled"] },
+      })
+         .sort({ createdAt: -1 })
+         .limit(10)
+         .populate("items.menuItem", "name price");
 
       res.json({
          success: true,
-         message: "Tables merged successfully",
-         data: mainTable,
+         data: {
+            tableNumber: table.tableNumber,
+            status: table.status,
+            currentOrderId: table.currentOrderId || null,
+            orderHistory,
+         },
       });
    } catch (error) {
+      console.error("Table history fetch error:", error);
       res.status(500).json({ success: false, error: error.message });
    }
 });
 
-// PATCH /api/admin/inhouse/tables/:tableNumber/status - Update table status
+// Debug middleware
+router.use((req, res, next) => {
+   console.log(`\n📍 INHOUSE ROUTE: ${req.method} ${req.path}`);
+   console.log(`   Full URL: ${req.originalUrl}`);
+   console.log(`   Params:`, req.params);
+   console.log(`   Body:`, req.body);
+   next();
+});
+
+// PATCH /api/admin/inhouse/tables/:tableNumber/status
 router.patch("/tables/:tableNumber/status", async (req, res) => {
    try {
       const { tableNumber } = req.params;
       const { status } = req.body;
 
+      console.log(`🔧 Updating table ${tableNumber} to status: ${status}`);
+
       const table = await Table.findOneAndUpdate(
-         { tableNumber },
+         { tableNumber: String(tableNumber) }, // Convert to string
          { status },
          { new: true },
       );
 
       if (!table) {
+         console.log(`❌ Table ${tableNumber} not found`);
          return res.status(404).json({
             success: false,
-            error: "Table not found",
+            error: `Table ${tableNumber} not found`,
          });
       }
+
+      console.log(`✅ Table updated:`, table);
 
       res.json({
          success: true,
@@ -127,19 +143,19 @@ router.patch("/tables/:tableNumber/status", async (req, res) => {
          data: table,
       });
    } catch (error) {
+      console.error("❌ Table status update error:", error);
       res.status(500).json({ success: false, error: error.message });
    }
 });
 
 // ========== IN-HOUSE ORDER MANAGEMENT ==========
 
-// POST /api/admin/inhouse/orders - Create new in-house order
+// POST /api/admin/inhouse/orders - Create new order
 router.post("/orders", async (req, res) => {
    try {
       const { tableNumber, items, customerName, guestCount, customerNotes } =
          req.body;
 
-      // Validate table exists
       const table = await Table.findOne({ tableNumber });
       if (!table) {
          return res.status(404).json({
@@ -148,16 +164,17 @@ router.post("/orders", async (req, res) => {
          });
       }
 
-      // Check if table already has an active order
       const existingOrder = await Order.findOne({
          tableNumber,
-         orderStatus: { $in: ["placed", "confirmed", "preparing", "ready"] },
+         orderStatus: {
+            $in: ["confirmed", "preparing", "ready", "served", "billing"],
+         },
       });
 
       if (existingOrder) {
          return res.status(400).json({
             success: false,
-            error: `Table ${tableNumber} already has an active order (#${existingOrder.orderNumber})`,
+            error: `Table ${tableNumber} already has an active order`,
             existingOrder: {
                orderNumber: existingOrder.orderNumber,
                status: existingOrder.orderStatus,
@@ -166,18 +183,21 @@ router.post("/orders", async (req, res) => {
          });
       }
 
-      // Generate unique order number for in-house
-      const today = new Date();
-      const dateStr = today.toISOString().slice(0, 10).replace(/-/g, "");
+      // ✅ FIXED: Proper date handling for order number
+      const now = new Date();
+      const dateStr = now.toISOString().slice(0, 10).replace(/-/g, "");
+
+      const startOfDay = new Date(now);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(now);
+      endOfDay.setHours(23, 59, 59, 999);
+
       const count = await Order.countDocuments({
          orderSource: "in-house",
-         createdAt: {
-            $gte: new Date(today.setHours(0, 0, 0, 0)),
-            $lt: new Date(today.setHours(23, 59, 59, 999)),
-         },
+         createdAt: { $gte: startOfDay, $lt: endOfDay },
       });
+
       const orderNumber = `IH-${dateStr}-${String(count + 1).padStart(3, "0")}`;
-      // Example: IH-20250205-001
 
       // Calculate amounts
       let totalAmount = 0;
@@ -188,7 +208,7 @@ router.post("/orders", async (req, res) => {
          if (!menuItem) {
             return res.status(404).json({
                success: false,
-               error: `Menu item ${item.menuItem} not found`,
+               error: `Menu item not found`,
             });
          }
 
@@ -211,11 +231,9 @@ router.post("/orders", async (req, res) => {
          });
       }
 
-      // Calculate taxes (assuming 5% GST for cafe items)
       const taxes = Math.round(totalAmount * 0.05);
       const finalAmount = totalAmount + taxes;
 
-      // Create order
       const order = new Order({
          orderNumber,
          orderSource: "in-house",
@@ -229,7 +247,7 @@ router.post("/orders", async (req, res) => {
          finalAmount,
          deliveryCharges: 0,
          discountAmount: 0,
-         paymentMethod: "cash", // Default, will be updated during billing
+         paymentMethod: "cash",
          paymentStatus: "pending",
          orderStatus: "confirmed",
          customerNotes,
@@ -246,13 +264,11 @@ router.post("/orders", async (req, res) => {
 
       await order.save();
 
-      // Update table status
       table.status = "occupied";
       table.currentOrderId = order._id;
       table.lastOccupiedAt = new Date();
       await table.save();
 
-      // Populate the response
       const populatedOrder = await Order.findById(order._id).populate(
          "items.menuItem",
          "name price category image preparationTime",
@@ -269,19 +285,14 @@ router.post("/orders", async (req, res) => {
    }
 });
 
-// GET /api/admin/inhouse/orders - Get all in-house orders
+// GET /api/admin/inhouse/orders
 router.get("/orders", async (req, res) => {
    try {
       const { status, date, tableNumber } = req.query;
       const filter = { orderSource: "in-house" };
 
-      if (status) {
-         filter.orderStatus = status;
-      }
-
-      if (tableNumber) {
-         filter.tableNumber = tableNumber;
-      }
+      if (status) filter.orderStatus = status;
+      if (tableNumber) filter.tableNumber = tableNumber;
 
       if (date) {
          const startOfDay = new Date(date);
@@ -306,30 +317,11 @@ router.get("/orders", async (req, res) => {
    }
 });
 
-// GET /api/admin/inhouse/orders/active - Get all active in-house orders
-router.get("/orders/active", async (req, res) => {
+// ✅ IMPORTANT: PUT THIS ROUTE BEFORE /:id/generate-bill
+// PUT /api/admin/inhouse/orders/:id/add-items
+router.put("/orders/:id/add-items", async (req, res) => {
    try {
-      const activeOrders = await Order.find({
-         orderSource: "in-house",
-         orderStatus: { $in: ["placed", "confirmed", "preparing", "ready"] },
-      })
-         .populate("items.menuItem", "name price category preparationTime")
-         .sort({ createdAt: -1 });
-
-      res.json({
-         success: true,
-         count: activeOrders.length,
-         data: activeOrders,
-      });
-   } catch (error) {
-      res.status(500).json({ success: false, error: error.message });
-   }
-});
-
-// PUT /api/admin/inhouse/orders/:id/add-items - Add items to existing order
-router.put("/:id/add-items", async (req, res) => {
-   try {
-      const { items } = req.body; // Array of { menuItem, quantity, specialInstructions }
+      const { items } = req.body;
 
       const order = await Order.findById(req.params.id);
       if (!order) {
@@ -346,29 +338,41 @@ router.put("/:id/add-items", async (req, res) => {
          });
       }
 
-      if (
-         order.orderStatus === "completed" ||
-         order.orderStatus === "cancelled"
-      ) {
+      // ✅ UPDATED: Block only if payment is completed
+      if (order.paymentStatus === "completed") {
          return res.status(400).json({
             success: false,
-            error: "Cannot add items to completed or cancelled orders",
+            error: "Cannot add items - payment already completed. Please create a new order.",
          });
       }
 
-      // Add new items
+      // ✅ UPDATED: Block if order is cancelled
+      if (order.orderStatus === "cancelled") {
+         return res.status(400).json({
+            success: false,
+            error: "Cannot add items to cancelled order",
+         });
+      }
+
+      // ✅ IMPORTANT: If bill was generated, mark it as needing regeneration
+      const wasBillGenerated = order.billGenerated;
+
       let additionalAmount = 0;
+      const addedItemNames = [];
+
       for (const item of items) {
          const menuItem = await CafeMenu.findById(item.menuItem);
          if (!menuItem || !menuItem.isAvailable) {
             return res.status(400).json({
                success: false,
-               error: `Menu item not available`,
+               error: `${menuItem?.name || "Item"} is not available`,
             });
          }
 
          const itemTotal = menuItem.price * item.quantity;
          additionalAmount += itemTotal;
+
+         addedItemNames.push(`${item.quantity}x ${menuItem.name}`);
 
          order.items.push({
             menuItem: item.menuItem,
@@ -384,14 +388,22 @@ router.put("/:id/add-items", async (req, res) => {
       order.taxes = Math.round(order.totalAmount * 0.05);
       order.finalAmount = order.totalAmount + order.taxes;
 
+      // ✅ If bill was already generated, mark it as outdated
+      if (wasBillGenerated) {
+         order.billGenerated = false; // Need to regenerate
+         order.billGeneratedAt = null;
+      }
+
       order.statusHistory.push({
          status: order.orderStatus,
          timestamp: new Date(),
-         note: `Added ${items.length} new item(s) to order`,
+         note: wasBillGenerated
+            ? `⚠️ Added: ${addedItemNames.join(", ")} - Bill needs regeneration`
+            : `Added: ${addedItemNames.join(", ")}`,
          updatedBy: req.admin._id,
       });
 
-      await order.save();
+      await order.save(); // Triggers pre-save hook
 
       const updatedOrder = await Order.findById(order._id).populate(
          "items.menuItem",
@@ -400,15 +412,19 @@ router.put("/:id/add-items", async (req, res) => {
 
       res.json({
          success: true,
-         message: "Items added successfully",
+         message: wasBillGenerated
+            ? "Items added - Please regenerate bill before payment"
+            : "Items added successfully",
+         needsBillRegeneration: wasBillGenerated, // ✅ Flag for frontend
          data: updatedOrder,
       });
    } catch (error) {
+      console.error("Add items error:", error);
       res.status(500).json({ success: false, error: error.message });
    }
 });
 
-// PUT /api/admin/inhouse/orders/:id/status - Update order status
+// PUT /api/admin/inhouse/orders/:id/status
 router.put("/orders/:id/status", async (req, res) => {
    try {
       const { status, note } = req.body;
@@ -441,7 +457,108 @@ router.put("/orders/:id/status", async (req, res) => {
    }
 });
 
-// POST /api/admin/inhouse/orders/:id/generate-bill - Generate bill for order
+// PUT /api/admin/inhouse/orders/:orderId/items/:itemId/status
+router.put("/orders/:orderId/items/:itemId/status", async (req, res) => {
+   try {
+      const { status } = req.body;
+
+      const order = await Order.findById(req.params.orderId).populate(
+         "items.menuItem",
+         "name",
+      );
+      if (!order) {
+         return res.status(404).json({
+            success: false,
+            error: "Order not found",
+         });
+      }
+
+      const item = order.items.id(req.params.itemId);
+      if (!item) {
+         return res.status(404).json({
+            success: false,
+            error: "Item not found",
+         });
+      }
+      // ✅ Get item name for better logging
+      const itemName = item.menuItem?.name || "Item";
+      // Update item status
+      item.status = status;
+      // ✅ FIXED: Include item name in note
+      order.statusHistory.push({
+         status: `item_${status}`,
+         timestamp: new Date(),
+         note: `${itemName} marked as ${status}`,
+         updatedBy: req.admin._id,
+      });
+
+      await order.save(); // Triggers pre-save hook
+
+      const updatedOrder = await Order.findById(order._id).populate(
+         "items.menuItem",
+         "name price category preparationTime",
+      );
+
+      res.json({
+         success: true,
+         message: `${itemName} marked as ${status}`,
+         data: {
+            item,
+            orderStatus: updatedOrder.orderStatus,
+            order: updatedOrder,
+         },
+      });
+   } catch (error) {
+      console.error("Item status update error:", error);
+      res.status(500).json({ success: false, error: error.message });
+   }
+});
+
+// PUT /api/admin/inhouse/orders/:orderId/mark-all-ready
+router.put("/orders/:orderId/mark-all-ready", async (req, res) => {
+   try {
+      const order = await Order.findById(req.params.orderId).populate(
+         "items.menuItem",
+         "name",
+      );
+
+      if (!order) {
+         return res.status(404).json({
+            success: false,
+            error: "Order not found",
+         });
+      }
+
+      // ✅ Collect item names for better logging
+      const itemsMarkedReady = [];
+
+      order.items.forEach((item) => {
+         if (item.status !== "ready" && item.status !== "served") {
+            item.status = "ready";
+            itemsMarkedReady.push(item.menuItem?.name || "Item");
+         }
+      });
+
+      order.statusHistory.push({
+         status: "ready",
+         timestamp: new Date(),
+         note: `All items ready: ${itemsMarkedReady.join(", ")}`, // ✅ List items
+         updatedBy: req.admin._id,
+      });
+
+      await order.save();
+
+      res.json({
+         success: true,
+         message: "All items marked as ready",
+         data: order,
+      });
+   } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+   }
+});
+
+// POST /api/admin/inhouse/:id/generate-bill
 router.post("/:id/generate-bill", async (req, res) => {
    try {
       const order = await Order.findById(req.params.id).populate(
@@ -456,22 +573,20 @@ router.post("/:id/generate-bill", async (req, res) => {
          });
       }
 
-      if (order.billGenerated) {
-         return res.status(400).json({
-            success: false,
-            error: "Bill already generated for this order",
-         });
-      }
+      // ✅ UPDATED: Allow regeneration if bill exists but items changed
+      const isRegeneration = order.billGenerated;
 
       // Mark bill as generated
       order.billGenerated = true;
       order.billGeneratedAt = new Date();
-      order.orderStatus = "billing"; // Order is billing for payment
+      order.orderStatus = "billing";
 
       order.statusHistory.push({
          status: "billing",
          timestamp: new Date(),
-         note: "Bill generated",
+         note: isRegeneration
+            ? "Bill regenerated with updated items"
+            : "Bill generated",
          updatedBy: req.admin._id,
       });
 
@@ -494,26 +609,25 @@ router.post("/:id/generate-bill", async (req, res) => {
          discount: order.discountAmount,
          finalAmount: order.finalAmount,
          generatedAt: order.billGeneratedAt,
+         isRegenerated: isRegeneration, // ✅ Flag
       };
 
       res.json({
          success: true,
-         message: "Bill generated successfully",
-         data: {
-            order,
-            bill,
-         },
+         message: isRegeneration
+            ? "Bill regenerated successfully - Please void previous bill"
+            : "Bill generated successfully",
+         data: { order, bill },
       });
    } catch (error) {
       res.status(500).json({ success: false, error: error.message });
    }
 });
 
-// POST /api/admin/inhouse/orders/:id/complete-payment - Complete payment & close order
+// POST /api/admin/inhouse/:id/complete-payment
 router.post("/:id/complete-payment", async (req, res) => {
    try {
       const { paymentMethod, paymentDetails } = req.body;
-      // paymentDetails: { machineId, transactionId, approvalCode } for card payments
 
       const order = await Order.findById(req.params.id);
       if (!order) {
@@ -526,11 +640,10 @@ router.post("/:id/complete-payment", async (req, res) => {
       if (order.paymentStatus === "completed") {
          return res.status(400).json({
             success: false,
-            error: "Payment already completed for this order",
+            error: "Payment already completed",
          });
       }
 
-      // Update payment info
       order.paymentMethod = paymentMethod;
       order.paymentStatus = "completed";
       order.orderStatus = "completed";
@@ -551,7 +664,6 @@ router.post("/:id/complete-payment", async (req, res) => {
 
       await order.save();
 
-      // Free up the table
       await Table.findOneAndUpdate(
          { tableNumber: order.tableNumber },
          {
@@ -571,24 +683,25 @@ router.post("/:id/complete-payment", async (req, res) => {
    }
 });
 
-// GET /api/admin/inhouse/kitchen-display - Kitchen Display System (KDS)
+// GET /api/admin/inhouse/kitchen-display
 router.get("/kitchen-display", async (req, res) => {
    try {
       const activeOrders = await Order.find({
          orderSource: { $in: ["in-house", "online"] },
-         orderStatus: { $in: ["placed", "confirmed", "preparing"] },
+         orderStatus: { $in: ["confirmed", "preparing", "ready"] },
       })
          .populate("items.menuItem", "name preparationTime category")
-         .sort({ createdAt: 1 }); // Oldest first
+         .sort({ createdAt: 1 });
 
-      // Group items by preparation status
       const kitchenView = activeOrders.map((order) => ({
          _id: order._id,
          orderNumber: order.orderNumber,
          orderSource: order.orderSource,
          tableNumber: order.tableNumber,
+         orderStatus: order.orderStatus,
          createdAt: order.createdAt,
          items: order.items.map((item) => ({
+            _id: item._id,
             name: item.menuItem.name,
             quantity: item.quantity,
             status: item.status,

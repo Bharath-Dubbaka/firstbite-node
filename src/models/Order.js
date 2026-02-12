@@ -1,54 +1,47 @@
-// models/Order.js
-// models/Order.js - UPDATED with In-house Order Support
+// models/Order.js - FIXED: Removed duplicate indexes
 const mongoose = require("mongoose");
-const validator = require("validator");
 
 const orderSchema = new mongoose.Schema(
    {
       orderNumber: {
          type: String,
          required: true,
-         unique: true,
-         // Format: Online = "LFB1234567890", In-house = "IH-001", "IH-002"
+         unique: true, // ✅ Keep only this, remove schema.index() below
       },
 
-      // ===== USER & ORDER SOURCE =====
       userId: {
          type: mongoose.Schema.Types.ObjectId,
          ref: "User",
          required: function () {
-            // Required only for online orders, optional for walk-in customers
             return this.orderSource === "online";
          },
       },
 
       orderSource: {
          type: String,
-         enum: ["online", "in-house", "swiggy", "zomato"],
+         enum: ["online", "in-house", "swiggy", "zomato", "takeaway"],
          required: true,
          default: "online",
       },
 
-      // ===== IN-HOUSE ORDER FIELDS =====
       tableNumber: {
-         type: String, // "21", "5-6" (for merged tables), "Counter"
+         type: String,
          required: function () {
             return this.orderSource === "in-house";
          },
       },
 
       customerName: {
-         type: String, // Optional for in-house orders
+         type: String,
          trim: true,
       },
 
       guestCount: {
-         type: Number, // Number of people at table
+         type: Number,
          min: 1,
          default: 1,
       },
 
-      // ===== EXISTING FIELDS =====
       subscriptionId: {
          type: mongoose.Schema.Types.ObjectId,
          ref: "Subscription",
@@ -71,7 +64,6 @@ const orderSchema = new mongoose.Schema(
                required: true,
             },
             specialInstructions: String,
-            // For kitchen tracking
             status: {
                type: String,
                enum: ["pending", "preparing", "ready", "served"],
@@ -143,7 +135,6 @@ const orderSchema = new mongoose.Schema(
 
       razorpayOrderId: String,
       razorpayPaymentId: String,
-
       // Payment machine details for in-house
       paymentDetails: {
          machineId: String, // "AXIS-001"
@@ -158,12 +149,12 @@ const orderSchema = new mongoose.Schema(
             "placed",
             "confirmed",
             "preparing",
-            "ready", // Kitchen is done
-            "served", // Waiter delivered to table
-            "billing", // Bill printed
+            "ready", // Kitchen prepared item/order
             "dispatched", // For Online
             "delivered", // For Online
             "cancelled",
+            "served", // Waiter delivered order/item to table
+            "billing", // Bill printed
             "completed", // Paid and Finished for In-house/Takeaway
          ],
          default: "placed",
@@ -205,13 +196,11 @@ const orderSchema = new mongoose.Schema(
          default: false,
       },
 
-      // Metadata
       createdBy: {
          type: mongoose.Schema.Types.ObjectId,
-         ref: "Admin", // Which admin created the in-house order
+         ref: "Admin",
       },
 
-      // Bill details for in-house
       billGenerated: {
          type: Boolean,
          default: false,
@@ -223,19 +212,77 @@ const orderSchema = new mongoose.Schema(
    },
 );
 
-// Indexes for better performance
-orderSchema.index({ orderNumber: 1 });
+// ✅ REMOVED DUPLICATE INDEXES - Only use compound indexes
 orderSchema.index({ orderSource: 1, createdAt: -1 });
-orderSchema.index({ tableNumber: 1, orderStatus: 1 });
+orderSchema.index({ orderStatus: 1, orderSource: 1 });
 orderSchema.index({ userId: 1, createdAt: -1 });
 
-// Virtual for display name
-orderSchema.virtual("displayName").get(function () {
-   if (this.orderSource === "in-house") {
-      return this.customerName || `Table ${this.tableNumber}`;
+// Auto-calculate order status based on item statuses
+
+orderSchema.pre("save", function (next) {
+   // Only for in-house orders
+   if (this.orderSource !== "in-house" || this.items.length === 0) {
+      return next();
    }
-   return this.populated("userId")?.name || "Customer";
+
+   // ✅ UPDATED: Don't auto-change if completed or cancelled
+   // BUT allow changes if billing (bill printed but not paid yet)
+   if (["completed", "cancelled"].includes(this.orderStatus)) {
+      return next();
+   }
+
+   const itemStatuses = this.items.map((i) => i.status);
+
+   // Check for ANY pending items (new items added)
+   const hasPending = itemStatuses.some((s) => s === "pending");
+   const allServed = itemStatuses.every((s) => s === "served");
+   const allReady = itemStatuses.every((s) => s === "ready" || s === "served");
+   const somePreparing = itemStatuses.some((s) => s === "preparing");
+
+   let newStatus = this.orderStatus;
+
+   // ✅ PRIORITY ORDER:
+
+   // 1. If there are pending items AND we're in billing/served
+   if (hasPending && ["served", "billing"].includes(this.orderStatus)) {
+      // Reset to confirmed so kitchen sees the new items
+      newStatus = "confirmed";
+   }
+   // 2. If all items served
+   else if (allServed && this.orderStatus !== "billing") {
+      // Don't override billing status
+      newStatus = "served";
+   }
+   // 3. If all items ready or served
+   else if (allReady && !["served", "billing"].includes(this.orderStatus)) {
+      newStatus = "ready";
+   }
+   // 4. If some items are preparing
+   else if (somePreparing && this.orderStatus === "confirmed") {
+      newStatus = "preparing";
+   }
+
+   // Only update if status actually changed
+   if (newStatus !== this.orderStatus) {
+      this.orderStatus = newStatus;
+
+      const lastHistoryStatus =
+         this.statusHistory[this.statusHistory.length - 1]?.status;
+      if (lastHistoryStatus !== newStatus) {
+         this.statusHistory.push({
+            status: newStatus,
+            timestamp: new Date(),
+            note: hasPending
+               ? "New items added - bill needs regeneration"
+               : `Auto-updated: Items are ${newStatus}`,
+            updatedBy: "system",
+         });
+      }
+   }
+
+   next();
 });
 
 const Order = mongoose.model("Order", orderSchema);
+
 module.exports = { Order };

@@ -40,6 +40,7 @@ app.use("/", userDetailsRouter);
 app.use("/api/admin/menu", adminMenuRoutes); //for admin to handle items data
 app.use("/api/admin/orders", adminOrderRoutes); //for admin to get order data
 app.use("/api/admin/inhouse", adminInhouseOrdersRoutes); //for admin to handle inhouse orders
+
 app.use("/api/menu", publicMenuRoutes); // public menu for users
 app.use("/api/orders", ordersRoutes);
 
