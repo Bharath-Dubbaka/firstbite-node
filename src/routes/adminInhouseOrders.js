@@ -317,6 +317,30 @@ router.get("/orders", async (req, res) => {
    }
 });
 
+// GET /api/admin/inhouse/orders/:id
+// GET single in-house order
+router.get("/orders/:id", async (req, res) => {
+   try {
+      const order = await Order.findById(req.params.id)
+         .populate("items.menuItem", "name price category preparationTime")
+         .populate("createdBy", "name");
+
+      if (!order) {
+         return res.status(404).json({
+            success: false,
+            error: "Order not found",
+         });
+      }
+
+      res.json({
+         success: true,
+         data: order,
+      });
+   } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+   }
+});
+
 // ✅ IMPORTANT: PUT THIS ROUTE BEFORE /:id/generate-bill
 // PUT /api/admin/inhouse/orders/:id/add-items
 router.put("/orders/:id/add-items", async (req, res) => {
@@ -721,3 +745,8 @@ router.get("/kitchen-display", async (req, res) => {
 });
 
 module.exports = router;
+
+
+
+
+
