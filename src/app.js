@@ -17,6 +17,8 @@ const app = express();
 // Import routes
 const authRoutes = require("./routes/auth");
 const { userDetailsRouter } = require("./routes/userDetails");
+const  adminTaxConfigRoutes  = require("./routes/adminTaxConfig");
+const adminBusinessSettingsRoutes = require("./routes/adminBusinessSettings");
 
 // Middleware
 app.use(express.json());
@@ -40,6 +42,8 @@ app.use("/", userDetailsRouter);
 app.use("/api/admin/menu", adminMenuRoutes); //for admin to handle items data
 app.use("/api/admin/orders", adminOrderRoutes); //for admin to get order data
 app.use("/api/admin/inhouse", adminInhouseOrdersRoutes); //for admin to handle inhouse orders
+app.use("/api/admin/tax-config", adminTaxConfigRoutes); //for admin to handle tax configurations
+app.use("/api/admin/business-settings", adminBusinessSettingsRoutes); //for admin to handle business settings
 
 app.use("/api/menu", publicMenuRoutes); // public menu for users
 app.use("/api/orders", ordersRoutes);

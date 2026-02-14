@@ -178,7 +178,30 @@ const orderSchema = new mongoose.Schema(
          type: mongoose.Schema.Types.ObjectId,
          ref: "DeliveryPerson",
       },
-
+      cgst: {
+         type: Number,
+         default: 0,
+      },
+      sgst: {
+         type: Number,
+         default: 0,
+      },
+      igst: {
+         type: Number,
+         default: 0,
+      },
+      serviceCharge: {
+         type: Number,
+         default: 0,
+      },
+      packagingCharges: {
+         type: Number,
+         default: 0,
+      },
+      roundOff: {
+         type: Number,
+         default: 0,
+      },
       // Notes
       customerNotes: String,
       adminNotes: String,

@@ -5,6 +5,7 @@ const { Table } = require("../models/Table");
 const { CafeMenu } = require("../models/CafeMenu");
 const { verifyAdminToken } = require("./admin");
 const router = express.Router();
+const { TaxCalculator } = require("../utils/taxCalculator");
 
 router.use(verifyAdminToken);
 
@@ -231,8 +232,15 @@ router.post("/orders", async (req, res) => {
          });
       }
 
-      const taxes = Math.round(totalAmount * 0.05);
-      const finalAmount = totalAmount + taxes;
+      // ✅ NEW: Use dynamic tax calculator
+      const breakdown = await TaxCalculator.calculateCharges(
+         totalAmount, // ✅ Use totalAmount (calculated above)
+         "in-house", // ✅ Hardcoded for in-house orders
+         {
+            itemCount: enrichedItems.length, // ✅ Use enrichedItems
+            discountAmount: 0, // ✅ Set to 0 or get from req.body if needed
+         },
+      );
 
       const order = new Order({
          orderNumber,
@@ -242,11 +250,16 @@ router.post("/orders", async (req, res) => {
          guestCount: guestCount || 1,
          items: enrichedItems,
          orderType: "dine-in",
-         totalAmount,
-         taxes,
-         finalAmount,
-         deliveryCharges: 0,
-         discountAmount: 0,
+         totalAmount: breakdown.subtotal,
+         taxes: breakdown.totalTax,
+         cgst: breakdown.cgst,
+         sgst: breakdown.sgst,
+         serviceCharge: breakdown.serviceCharge || 0,
+         deliveryCharges: breakdown.deliveryCharges || 0,
+         packagingCharges: breakdown.packagingCharges || 0,
+         discountAmount: breakdown.discount || 0,
+         roundOff: breakdown.roundOff || 0,
+         finalAmount: breakdown.grandTotal,
          paymentMethod: "cash",
          paymentStatus: "pending",
          orderStatus: "confirmed",
@@ -263,7 +276,6 @@ router.post("/orders", async (req, res) => {
       });
 
       await order.save();
-
       table.status = "occupied";
       table.currentOrderId = order._id;
       table.lastOccupiedAt = new Date();
@@ -745,8 +757,3 @@ router.get("/kitchen-display", async (req, res) => {
 });
 
 module.exports = router;
-
-
-
-
-
