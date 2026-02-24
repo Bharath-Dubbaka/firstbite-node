@@ -60,10 +60,13 @@ const orderSchema = new mongoose.Schema(
                required: true,
                min: 1,
             },
-            price: {
-               type: Number,
-               required: true,
-            },
+            price: { type: Number, required: true }, // base price only
+            selectedAddons: [
+               {
+                  name: { type: String }, // snapshot "Extra Cheese Slice"
+                  price: { type: Number }, // snapshot ₹30
+               },
+            ],
             specialInstructions: String,
             status: {
                type: String,

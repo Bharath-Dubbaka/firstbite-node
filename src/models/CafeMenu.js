@@ -32,7 +32,13 @@ const cafeMenuSchema = new mongoose.Schema(
          type: String, // e.g., Veg, Non-Veg, Beverages, Specials
          required: true,
       },
-
+      addons: [
+         {
+            name: { type: String, required: true }, // "Extra Cheese Slice"
+            price: { type: Number, required: true }, // 30
+            isAvailable: { type: Boolean, default: true },
+         },
+      ],
       rating: {
          type: Number,
          min: 0,
@@ -90,7 +96,7 @@ const cafeMenuSchema = new mongoose.Schema(
    },
    {
       timestamps: true,
-   }
+   },
 );
 
 cafeMenuSchema.index({ name: "text", category: "text" }); // For search functionality

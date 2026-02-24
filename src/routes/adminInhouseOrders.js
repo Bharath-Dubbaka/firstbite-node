@@ -220,17 +220,26 @@ router.post("/orders", async (req, res) => {
             });
          }
 
-         const itemTotal = menuItem.price * item.quantity;
-         totalAmount += itemTotal;
-
          enrichedItems.push({
             menuItem: item.menuItem,
+            name: menuItem.name,
             quantity: item.quantity,
-            price: menuItem.price,
-            name: menuItem.name, // ← snapshot of menuitem name at order creation time, in case it gets deleted in future
+            price: menuItem.price, // ← base price only, addons are separate
+            selectedAddons: (item.selectedAddons || []).map((a) => ({
+               name: a.name,
+               price: a.price, // ← snapshot at order time
+            })),
             specialInstructions: item.specialInstructions || "",
             status: "pending",
          });
+
+         // And update totalAmount calculation:
+         const addonTotal = (item.selectedAddons || []).reduce(
+            (s, a) => s + a.price,
+            0,
+         );
+         const itemTotal = (menuItem.price + addonTotal) * item.quantity;
+         totalAmount += itemTotal;
       }
 
       // ✅ NEW: Use dynamic tax calculator
@@ -406,17 +415,22 @@ router.put("/orders/:id/add-items", async (req, res) => {
             });
          }
 
-         const itemTotal = menuItem.price * item.quantity;
+         const addonTotal = (item.selectedAddons || []).reduce(
+            (s, a) => s + a.price,
+            0,
+         );
+         const itemTotal = (menuItem.price + addonTotal) * item.quantity;
          additionalAmount += itemTotal;
-
-         addedItemNames.push(`${item.quantity}x ${menuItem.name}`);
 
          order.items.push({
             menuItem: item.menuItem,
-            quantity: item.quantity,
+            name: menuItem.name,
             price: menuItem.price,
-            name: menuItem.name, // ✅ ADD THIS LINE
-
+            selectedAddons: (item.selectedAddons || []).map((a) => ({
+               name: a.name,
+               price: a.price,
+            })),
+            quantity: item.quantity,
             specialInstructions: item.specialInstructions || "",
             status: "pending",
          });
@@ -749,6 +763,7 @@ router.get("/kitchen-display", async (req, res) => {
             status: item.status,
             specialInstructions: item.specialInstructions,
             preparationTime: item.menuItem?.preparationTime || 0,
+            selectedAddons: item.selectedAddons || [],
          })),
       }));
 
