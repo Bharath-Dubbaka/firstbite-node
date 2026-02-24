@@ -227,6 +227,7 @@ router.post("/orders", async (req, res) => {
             menuItem: item.menuItem,
             quantity: item.quantity,
             price: menuItem.price,
+            name: menuItem.name, // ← snapshot of menuitem name at order creation time, in case it gets deleted in future
             specialInstructions: item.specialInstructions || "",
             status: "pending",
          });
@@ -414,6 +415,8 @@ router.put("/orders/:id/add-items", async (req, res) => {
             menuItem: item.menuItem,
             quantity: item.quantity,
             price: menuItem.price,
+            name: menuItem.name, // ✅ ADD THIS LINE
+
             specialInstructions: item.specialInstructions || "",
             status: "pending",
          });
@@ -517,7 +520,7 @@ router.put("/orders/:orderId/items/:itemId/status", async (req, res) => {
          });
       }
       // ✅ Get item name for better logging
-      const itemName = item.menuItem?.name || "Item";
+      const itemName = item.name || item.menuItem?.name || "Item";
       // Update item status
       item.status = status;
       // ✅ FIXED: Include item name in note
@@ -571,7 +574,7 @@ router.put("/orders/:orderId/mark-all-ready", async (req, res) => {
       order.items.forEach((item) => {
          if (item.status !== "ready" && item.status !== "served") {
             item.status = "ready";
-            itemsMarkedReady.push(item.menuItem?.name || "Item");
+            itemsMarkedReady.push(item.name || item.menuItem?.name || "Item");
          }
       });
 
@@ -635,7 +638,8 @@ router.post("/:id/generate-bill", async (req, res) => {
          customerName: order.customerName,
          guestCount: order.guestCount,
          items: order.items.map((item) => ({
-            name: item.menuItem.name,
+            // ✅ Use snapshot name first, then populate fallback, then "Deleted Item"
+            name: item.name || item.menuItem?.name || "Deleted Item",
             quantity: item.quantity,
             price: item.price,
             total: item.price * item.quantity,
@@ -656,6 +660,7 @@ router.post("/:id/generate-bill", async (req, res) => {
          data: { order, bill },
       });
    } catch (error) {
+      console.error("Generate bill error:", error); // ← add this to see real error
       res.status(500).json({ success: false, error: error.message });
    }
 });
@@ -738,11 +743,12 @@ router.get("/kitchen-display", async (req, res) => {
          createdAt: order.createdAt,
          items: order.items.map((item) => ({
             _id: item._id,
-            name: item.menuItem.name,
+            // ✅ Use snapshot name first, fallback to populated, fallback to "Deleted Item"
+            name: item.name || item.menuItem?.name || "Deleted Item",
             quantity: item.quantity,
             status: item.status,
             specialInstructions: item.specialInstructions,
-            preparationTime: item.menuItem.preparationTime,
+            preparationTime: item.menuItem?.preparationTime || 0,
          })),
       }));
 
@@ -752,6 +758,7 @@ router.get("/kitchen-display", async (req, res) => {
          data: kitchenView,
       });
    } catch (error) {
+      console.error("Kitchen display error:", error);
       res.status(500).json({ success: false, error: error.message });
    }
 });

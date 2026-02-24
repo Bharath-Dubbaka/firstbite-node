@@ -10,8 +10,12 @@ router.use(verifyAdminToken);
 
 // GET /api/admin/menu - Get all menu items for the admin view
 router.get("/", async (req, res) => {
-   const items = await CafeMenu.find().sort({ createdAt: -1 });
-   res.json({ length: items.length, data: items });
+   try {
+      const items = await CafeMenu.find().sort({ createdAt: -1 });
+      res.json({ length: items.length, data: items });
+   } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+   }
 });
 
 // POST /api/admin/menu - Add a new menu item
@@ -31,7 +35,7 @@ router.put("/:id", async (req, res) => {
       const updatedItem = await CafeMenu.findByIdAndUpdate(
          req.params.id,
          req.body,
-         { new: true }
+         { new: true },
       );
 
       // check if updatedItem is null --- which means item id does not exist
@@ -55,7 +59,7 @@ router.patch("/:id/availability", async (req, res) => {
       const item = await CafeMenu.findByIdAndUpdate(
          req.params.id,
          { $set: { isAvailable: isAvailable } },
-         { new: true }
+         { new: true },
       );
 
       //handle the null case before accessing item.name AND If the id doesn’t exist → you’ll get a 404 Not Found
@@ -73,6 +77,25 @@ router.patch("/:id/availability", async (req, res) => {
       });
    } catch (error) {
       res.status(400).json({ success: false, error: error.message });
+   }
+});
+
+// DELETE /api/admin/menu/:id
+router.delete("/:id", async (req, res) => {
+   try {
+      const item = await CafeMenu.findByIdAndDelete(req.params.id);
+      if (!item) {
+         return res
+            .status(404)
+            .json({ success: false, error: "Menu item not found" });
+      }
+      res.json({
+         success: true,
+         message: `"${item.name}" deleted successfully`,
+      });
+   } catch (error) {
+      console.log(error.message);
+      res.status(500).json({ success: false, error: error.message });
    }
 });
 

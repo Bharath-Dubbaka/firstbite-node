@@ -54,6 +54,7 @@ const orderSchema = new mongoose.Schema(
                ref: "CafeMenu",
                required: true,
             },
+            name: { type: String, default: "Unknown Item" }, //snapshot at order time
             quantity: {
                type: Number,
                required: true,
