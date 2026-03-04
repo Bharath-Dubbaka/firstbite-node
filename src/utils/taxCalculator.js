@@ -187,12 +187,33 @@ class TaxCalculator {
    /**
     * Format breakdown for display
     */
+   // ✅ FIXED - derive rates from the breakdown amounts
    static formatBreakdown(breakdown) {
+      const subtotal = breakdown.subtotal || 1; // avoid divide-by-zero
+      const cgstRate =
+         breakdown.cgst > 0
+            ? ((breakdown.cgst / subtotal) * 100).toFixed(1)
+            : 0;
+      const sgstRate =
+         breakdown.sgst > 0
+            ? ((breakdown.sgst / subtotal) * 100).toFixed(1)
+            : 0;
+      const igstRate =
+         breakdown.igst > 0
+            ? ((breakdown.igst / subtotal) * 100).toFixed(1)
+            : 0;
+
       return {
          Subtotal: `₹${breakdown.subtotal}`,
-         ...(breakdown.cgst > 0 && { "CGST (2.5%)": `₹${breakdown.cgst}` }),
-         ...(breakdown.sgst > 0 && { "SGST (2.5%)": `₹${breakdown.sgst}` }),
-         ...(breakdown.igst > 0 && { "IGST (5%)": `₹${breakdown.igst}` }),
+         ...(breakdown.cgst > 0 && {
+            [`CGST (${cgstRate}%)`]: `₹${breakdown.cgst}`,
+         }),
+         ...(breakdown.sgst > 0 && {
+            [`SGST (${sgstRate}%)`]: `₹${breakdown.sgst}`,
+         }),
+         ...(breakdown.igst > 0 && {
+            [`IGST (${igstRate}%)`]: `₹${breakdown.igst}`,
+         }),
          ...(breakdown.serviceCharge > 0 && {
             "Service Charge": `₹${breakdown.serviceCharge}`,
          }),

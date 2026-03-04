@@ -436,10 +436,60 @@ router.put("/orders/:id/add-items", async (req, res) => {
          });
       }
 
-      // Recalculate totals
-      order.totalAmount += additionalAmount;
-      order.taxes = Math.round(order.totalAmount * 0.05);
-      order.finalAmount = order.totalAmount + order.taxes;
+      // ✅ FIX - honor original rates by back-calculating percentages from stored amounts
+      const newSubtotal = order.totalAmount + additionalAmount;
+
+      // Back-calculate original rates from what was stored at order creation
+      const originalServiceChargeRate =
+         order.totalAmount > 0
+            ? (order.serviceCharge / order.totalAmount) * 100
+            : 0;
+      const originalCgstRate =
+         order.totalAmount > 0 ? (order.cgst / order.totalAmount) * 100 : 0;
+      const originalSgstRate =
+         order.totalAmount > 0 ? (order.sgst / order.totalAmount) * 100 : 0;
+      const originalPackagingRate =
+         order.totalAmount > 0
+            ? (order.packagingCharges / order.totalAmount) * 100
+            : 0;
+
+      // Reapply original rates to new subtotal
+      const newCgst = parseFloat(
+         ((newSubtotal * originalCgstRate) / 100).toFixed(2),
+      );
+      const newSgst = parseFloat(
+         ((newSubtotal * originalSgstRate) / 100).toFixed(2),
+      );
+      const newServiceCharge = parseFloat(
+         ((newSubtotal * originalServiceChargeRate) / 100).toFixed(2),
+      );
+      const newPackagingCharges = parseFloat(
+         ((newSubtotal * originalPackagingRate) / 100).toFixed(2),
+      );
+      const newTotalTax = newCgst + newSgst;
+
+      // Recalculate grand total
+      let newTotal =
+         newSubtotal +
+         newTotalTax +
+         newServiceCharge +
+         newPackagingCharges -
+         (order.discountAmount || 0);
+
+      // Preserve original round-off behavior
+      const roundedTotal = Math.round(newTotal);
+      const newRoundOff = parseFloat((roundedTotal - newTotal).toFixed(2));
+      newTotal = roundedTotal;
+
+      order.totalAmount = newSubtotal;
+      order.taxes = newTotalTax;
+      order.cgst = newCgst;
+      order.sgst = newSgst;
+      order.igst = order.igst || 0; // IGST doesn't change
+      order.serviceCharge = newServiceCharge;
+      order.packagingCharges = newPackagingCharges;
+      order.roundOff = newRoundOff;
+      order.finalAmount = newTotal;
 
       // ✅ If bill was already generated, mark it as outdated
       if (wasBillGenerated) {
