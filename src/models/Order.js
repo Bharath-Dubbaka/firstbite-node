@@ -157,6 +157,7 @@ const orderSchema = new mongoose.Schema(
             "dispatched", // For Online
             "delivered", // For Online
             "cancelled",
+            "refunded",
             "served", // Waiter delivered order/item to table
             "billing", // Bill printed
             "completed", // Paid and Finished for In-house/Takeaway
@@ -197,6 +198,10 @@ const orderSchema = new mongoose.Schema(
       serviceCharge: {
          type: Number,
          default: 0,
+      },
+      serviceChargeWaived: {
+         type: Boolean,
+         default: false,
       },
       packagingCharges: {
          type: Number,

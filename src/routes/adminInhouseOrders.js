@@ -6,6 +6,10 @@ const { CafeMenu } = require("../models/CafeMenu");
 const { verifyAdminToken } = require("./admin");
 const router = express.Router();
 const { TaxCalculator } = require("../utils/taxCalculator");
+const { Bill } = require("../models/Bill");
+const mongoose = require("mongoose"); // ← ADD THIS
+const { getNextSequence } = require("../models/Counter");
+const { getSourceCode } = require("../utils/orderSources"); // NEW: For debugging
 
 router.use(verifyAdminToken);
 
@@ -13,6 +17,78 @@ router.use((req, res, next) => {
    console.log(`📍 Inhouse Route Hit: ${req.method} ${req.path}`);
    next();
 });
+
+// ── Helper: generate sequential bill number ───────────────────────────────────
+async function generateBillNumber() {
+   const year = new Date().getFullYear();
+   const seq = await getNextSequence(`BILL-${year}`);
+   return `${year}-${String(seq).padStart(6, "0")}`;
+}
+
+// ── Helper: build Bill snapshot from order ────────────────────────────────────
+function buildBillSnapshot(order, billNumber, adminId, previousBillId = null) {
+   const subtotal = order.totalAmount;
+
+   // Derive rates from stored rupee amounts + subtotal
+   // These are stored explicitly on the Bill so they never need recalculation
+   const cgstRate =
+      subtotal > 0 ? parseFloat(((order.cgst / subtotal) * 100).toFixed(2)) : 0;
+   const sgstRate =
+      subtotal > 0 ? parseFloat(((order.sgst / subtotal) * 100).toFixed(2)) : 0;
+   const igstRate =
+      subtotal > 0 ? parseFloat(((order.igst / subtotal) * 100).toFixed(2)) : 0;
+   const scRate =
+      subtotal > 0
+         ? parseFloat(((order.serviceCharge / subtotal) * 100).toFixed(2))
+         : 0;
+
+   return {
+      billNumber,
+      orderId: order._id,
+      orderNumber: order.orderNumber,
+      tableNumber: order.tableNumber,
+      customerName: order.customerName,
+      guestCount: order.guestCount,
+      orderSource: order.orderSource,
+
+      items: order.items.map((item) => ({
+         name: item.name || item.menuItem?.name || "Deleted Item",
+         quantity: item.quantity,
+         basePrice: item.price,
+         selectedAddons: item.selectedAddons || [],
+         unitTotal:
+            (item.price +
+               (item.selectedAddons?.reduce((s, a) => s + a.price, 0) || 0)) *
+            item.quantity,
+      })),
+
+      subtotal,
+      cgstRate,
+      cgst: order.cgst || 0,
+      sgstRate,
+      sgst: order.sgst || 0,
+      igstRate,
+      igst: order.igst || 0,
+      totalTax: order.taxes || 0,
+
+      serviceChargeRate: scRate,
+      serviceCharge: order.serviceCharge || 0,
+      serviceChargeWaived: order.serviceChargeWaived || false,
+
+      packagingCharges: order.packagingCharges || 0,
+      deliveryCharges: order.deliveryCharges || 0,
+      discount: order.discountAmount || 0,
+      roundOff: order.roundOff || 0,
+      grandTotal: order.finalAmount,
+
+      paymentStatus: "generated",
+      generatedBy: adminId,
+      generatedAt: new Date(),
+      isRegenerated: previousBillId !== null,
+      previousBillId,
+      isLocked: false,
+   };
+}
 
 // ========== TABLE MANAGEMENT ==========
 
@@ -185,21 +261,9 @@ router.post("/orders", async (req, res) => {
       }
 
       // ✅ FIXED: Proper date handling for order number
-      const now = new Date();
-      const dateStr = now.toISOString().slice(0, 10).replace(/-/g, "");
-
-      const startOfDay = new Date(now);
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(now);
-      endOfDay.setHours(23, 59, 59, 999);
-
-      const count = await Order.countDocuments({
-         orderSource: "in-house",
-         createdAt: { $gte: startOfDay, $lt: endOfDay },
-      });
-
-      const orderNumber = `IH-${dateStr}-${String(count + 1).padStart(3, "0")}`;
-
+      const sourceCode = getSourceCode("in-house"); // "888"
+      const seq = await getNextSequence(`ORD-${sourceCode}`);
+      const orderNumber = `${sourceCode}-${String(seq).padStart(6, "0")}`;
       // Calculate amounts
       let totalAmount = 0;
       const enrichedItems = [];
@@ -374,6 +438,18 @@ router.put("/orders/:id/add-items", async (req, res) => {
          return res.status(404).json({
             success: false,
             error: "Order not found",
+         });
+      }
+      if (order.paymentStatus === "refunded") {
+         return res.status(400).json({
+            success: false,
+            error: "Cannot generate bill for a refunded order",
+         });
+      }
+      if (order.orderStatus === "cancelled") {
+         return res.status(400).json({
+            success: false,
+            error: "Cannot generate bill for a cancelled order",
          });
       }
 
@@ -617,6 +693,48 @@ router.put("/orders/:orderId/items/:itemId/status", async (req, res) => {
    }
 });
 
+// PUT /api/admin/inhouse/orders/:id/payment-status
+router.put("/orders/:id/payment-status", async (req, res) => {
+   try {
+      const { paymentStatus } = req.body;
+      const order = await Order.findById(req.params.id);
+      if (!order)
+         return res
+            .status(404)
+            .json({ success: false, error: "Order not found" });
+
+      // Only allow refund on completed payments
+      if (paymentStatus === "refunded" && order.paymentStatus !== "completed") {
+         return res.status(400).json({
+            success: false,
+            error: "Can only refund a completed payment",
+         });
+      }
+
+      order.paymentStatus = paymentStatus;
+      order.statusHistory.push({
+         status: `payment_${paymentStatus}`,
+         timestamp: new Date(),
+         note: `Payment status updated to ${paymentStatus}`,
+         updatedBy: req.admin._id,
+      });
+
+      await order.save();
+      console.log(
+         `[PAYMENT_STATUS] Order ${order.orderNumber} payment → ${paymentStatus}`,
+      );
+
+      res.json({
+         success: true,
+         message: `Payment status updated to ${paymentStatus}`,
+         data: order,
+      });
+   } catch (error) {
+      console.error(`[PAYMENT_STATUS] ❌ ${error.message}`);
+      res.status(500).json({ success: false, error: error.message });
+   }
+});
+
 // PUT /api/admin/inhouse/orders/:orderId/mark-all-ready
 router.put("/orders/:orderId/mark-all-ready", async (req, res) => {
    try {
@@ -661,7 +779,123 @@ router.put("/orders/:orderId/mark-all-ready", async (req, res) => {
    }
 });
 
+// ═════════════════════════════════════════════════════════════════════════════
+// POST /api/admin/inhouse/:id/waive-service-charge
+// Toggle service charge waiver on an unpaid order.
+// Recalculates finalAmount immediately.
+// ═════════════════════════════════════════════════════════════════════════════
+router.post("/:id/waive-service-charge", async (req, res) => {
+   try {
+      const order = await Order.findById(req.params.id);
+      if (!order) {
+         return res
+            .status(404)
+            .json({ success: false, error: "Order not found" });
+      }
+
+      if (order.paymentStatus === "completed") {
+         return res.status(400).json({
+            success: false,
+            error: "Cannot modify a completed order",
+         });
+      }
+      if (
+         order.paymentStatus === "refunded" ||
+         order.orderStatus === "cancelled" ||
+         order.orderStatus === "refunded"
+      ) {
+         return res
+            .status(400)
+            .json({ success: false, error: "Cannot modify this order" });
+      }
+      if (order.orderSource !== "in-house") {
+         return res.status(400).json({
+            success: false,
+            error: "Service charge waiver is only for in-house orders",
+         });
+      }
+
+      const waiving = !order.serviceChargeWaived; // toggle
+
+      if (waiving) {
+         // Remove service charge: subtract it from finalAmount and zero it out
+         order.finalAmount = parseFloat(
+            (order.finalAmount - order.serviceCharge).toFixed(2),
+         );
+         // Re-apply round off on new total
+         const reRounded = Math.round(order.finalAmount - order.roundOff);
+         const newRoundOff = parseFloat(
+            (reRounded - (order.finalAmount - order.roundOff)).toFixed(2),
+         );
+         order.roundOff = newRoundOff;
+         order.finalAmount = reRounded;
+         order.serviceCharge = 0;
+         order.serviceChargeWaived = true;
+      } else {
+         // Restore service charge: back-calculate original rate from serviceChargeRate
+         // We can't recover the original % after it was zeroed unless we stored it.
+         // So fetch current TaxConfig rate as the "restore" value.
+         // (This edge case — toggling back on after waiving — is rare in practice)
+         const { TaxCalculator } = require("../utils/taxCalculator");
+         const breakdown = await TaxCalculator.calculateCharges(
+            order.totalAmount,
+            "in-house",
+            { itemCount: order.items.length },
+         );
+         order.serviceCharge = breakdown.serviceCharge || 0;
+         order.serviceChargeWaived = false;
+
+         // Recalculate finalAmount cleanly
+         let newTotal =
+            order.totalAmount +
+            order.taxes +
+            order.serviceCharge +
+            order.packagingCharges +
+            order.deliveryCharges -
+            (order.discountAmount || 0);
+
+         const rounded = Math.round(newTotal);
+         order.roundOff = parseFloat((rounded - newTotal).toFixed(2));
+         order.finalAmount = rounded;
+      }
+
+      // If bill was already generated, it needs to be regenerated
+      if (order.billGenerated) {
+         order.billGenerated = false;
+         order.billGeneratedAt = null;
+      }
+
+      order.statusHistory.push({
+         status: order.orderStatus,
+         timestamp: new Date(),
+         note: waiving
+            ? "Service charge waived by cashier"
+            : "Service charge restored by cashier",
+         updatedBy: req.admin._id,
+      });
+
+      await order.save();
+
+      res.json({
+         success: true,
+         message: waiving
+            ? `Service charge waived. New total: ₹${order.finalAmount}`
+            : `Service charge restored. New total: ₹${order.finalAmount}`,
+         data: {
+            serviceChargeWaived: order.serviceChargeWaived,
+            serviceCharge: order.serviceCharge,
+            finalAmount: order.finalAmount,
+            roundOff: order.roundOff,
+         },
+      });
+   } catch (error) {
+      console.error("Waive service charge error:", error);
+      res.status(500).json({ success: false, error: error.message });
+   }
+});
 // POST /api/admin/inhouse/:id/generate-bill
+// Creates/replaces a Bill snapshot. Does NOT lock it yet.
+// ═════════════════════════════════════════════════════════════════════════════
 router.post("/:id/generate-bill", async (req, res) => {
    try {
       const order = await Order.findById(req.params.id).populate(
@@ -670,16 +904,39 @@ router.post("/:id/generate-bill", async (req, res) => {
       );
 
       if (!order) {
-         return res.status(404).json({
-            success: false,
-            error: "Order not found",
-         });
+         return res
+            .status(404)
+            .json({ success: false, error: "Order not found" });
       }
 
-      // ✅ UPDATED: Allow regeneration if bill exists but items changed
       const isRegeneration = order.billGenerated;
+      let previousBillId = null;
 
-      // Mark bill as generated
+      // If regenerating, void the previous Bill document
+      if (isRegeneration) {
+         const prevBill = await Bill.findOne({
+            orderId: order._id,
+            paymentStatus: "generated",
+         });
+         if (prevBill) {
+            prevBill.paymentStatus = "voided";
+            // voiding is allowed because prevBill.isLocked is still false
+            await prevBill.save();
+            previousBillId = prevBill._id;
+         }
+      }
+
+      // Create new Bill snapshot
+      const billNumber = await generateBillNumber();
+      const snapshot = buildBillSnapshot(
+         order,
+         billNumber,
+         req.admin._id,
+         previousBillId,
+      );
+      const bill = await Bill.create(snapshot);
+
+      // Update order
       order.billGenerated = true;
       order.billGeneratedAt = new Date();
       order.orderStatus = "billing";
@@ -688,85 +945,118 @@ router.post("/:id/generate-bill", async (req, res) => {
          status: "billing",
          timestamp: new Date(),
          note: isRegeneration
-            ? "Bill regenerated with updated items"
-            : "Bill generated",
+            ? `Bill regenerated (${billNumber}) — previous bill voided`
+            : `Bill generated (${billNumber})`,
          updatedBy: req.admin._id,
       });
 
       await order.save();
 
-      // Bill structure
-      const bill = {
-         orderNumber: order.orderNumber,
-         tableNumber: order.tableNumber,
-         customerName: order.customerName,
-         guestCount: order.guestCount,
-         items: order.items.map((item) => ({
-            // ✅ Use snapshot name first, then populate fallback, then "Deleted Item"
-            name: item.name || item.menuItem?.name || "Deleted Item",
-            quantity: item.quantity,
-            price: item.price,
-            total: item.price * item.quantity,
-         })),
-         subtotal: order.totalAmount,
-         taxes: order.taxes,
-         discount: order.discountAmount,
-         finalAmount: order.finalAmount,
-         generatedAt: order.billGeneratedAt,
-         isRegenerated: isRegeneration, // ✅ Flag
-      };
-
       res.json({
          success: true,
          message: isRegeneration
-            ? "Bill regenerated successfully - Please void previous bill"
+            ? "Bill regenerated — please void previous printed copy"
             : "Bill generated successfully",
          data: { order, bill },
       });
    } catch (error) {
-      console.error("Generate bill error:", error); // ← add this to see real error
+      console.error("Generate bill error:", error);
       res.status(500).json({ success: false, error: error.message });
    }
 });
 
-// POST /api/admin/inhouse/:id/complete-payment
+// ═════════════════════════════════════════════════════════════════════════════
+// POST /api/admin/inhouse/:id/complete-payment   (REPLACE existing route)
+// Locks the Bill snapshot forever. Updates order to completed.
+// ═════════════════════════════════════════════════════════════════════════════
 router.post("/:id/complete-payment", async (req, res) => {
    try {
       const { paymentMethod, paymentDetails } = req.body;
 
+      console.log(
+         `[PAYMENT] Request for order: ${req.params.id}, method: ${paymentMethod}`,
+      );
+
+      if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+         return res
+            .status(400)
+            .json({ success: false, error: "Invalid order ID" });
+      }
+
       const order = await Order.findById(req.params.id);
-      if (!order) {
-         return res.status(404).json({
+      if (!order)
+         return res
+            .status(404)
+            .json({ success: false, error: "Order not found" });
+
+      console.log(
+         `[PAYMENT] Order found: ${order.orderNumber}, billGenerated: ${order.billGenerated}, paymentStatus: ${order.paymentStatus}`,
+      );
+
+      if (order.paymentStatus === "completed") {
+         return res
+            .status(400)
+            .json({ success: false, error: "Payment already completed" });
+      }
+      if (order.paymentStatus === "refunded") {
+         return res
+            .status(400)
+            .json({ success: false, error: "Cannot re-pay a refunded order" });
+      }
+      if (order.orderStatus === "cancelled") {
+         return res
+            .status(400)
+            .json({ success: false, error: "Cannot pay a cancelled order" });
+      }
+      if (order.orderStatus === "refunded") {
+         return res
+            .status(400)
+            .json({ success: false, error: "Cannot re-pay a refunded order" });
+      }
+
+      // Find the Bill snapshot
+      const bill = await Bill.findOne({
+         orderId: order._id,
+         paymentStatus: "generated",
+      });
+
+      if (!bill) {
+         const anyBill = await Bill.findOne({ orderId: order._id });
+         console.log(
+            `[PAYMENT] ❌ No generated bill found. anyBill exists: ${!!anyBill}, status: ${anyBill?.paymentStatus}`,
+         );
+         return res.status(400).json({
             success: false,
-            error: "Order not found",
+            error: "No generated bill found. Please generate bill first.",
+            debug: {
+               orderBillGeneratedFlag: order.billGenerated,
+               anyBillExists: !!anyBill,
+               anyBillStatus: anyBill?.paymentStatus || "none",
+            },
          });
       }
 
-      if (order.paymentStatus === "completed") {
-         return res.status(400).json({
-            success: false,
-            error: "Payment already completed",
-         });
-      }
+      console.log(`[PAYMENT] Bill found: ${bill.billNumber}, locking now...`);
+
+      bill.paymentMethod = paymentMethod;
+      bill.paymentCompletedAt = new Date();
+      bill.paymentStatus = "paid";
+      bill.isLocked = true;
+      bill.lockedAt = new Date();
+      await bill.save();
+      console.log(`[PAYMENT] ✅ Bill ${bill.billNumber} locked forever`);
 
       order.paymentMethod = paymentMethod;
       order.paymentStatus = "completed";
       order.orderStatus = "completed";
-
-      if (paymentDetails) {
-         order.paymentDetails = {
-            ...paymentDetails,
-            timestamp: new Date(),
-         };
-      }
-
+      if (paymentDetails)
+         order.paymentDetails = { ...paymentDetails, timestamp: new Date() };
       order.statusHistory.push({
          status: "completed",
          timestamp: new Date(),
-         note: `Payment completed via ${paymentMethod}`,
+         note: `Payment completed via ${paymentMethod} — Bill ${bill.billNumber} locked`,
          updatedBy: req.admin._id,
       });
-
       await order.save();
 
       await Table.findOneAndUpdate(
@@ -778,12 +1068,99 @@ router.post("/:id/complete-payment", async (req, res) => {
          },
       );
 
+      console.log(`[PAYMENT] ✅ Done. Table ${order.tableNumber} freed.`);
+
       res.json({
          success: true,
-         message: `Payment completed. Table ${order.tableNumber} is now available.`,
-         data: order,
+         message: `Payment completed. Bill ${bill.billNumber} locked. Table ${order.tableNumber} is now free.`,
+         data: { order, bill },
       });
    } catch (error) {
+      console.error(`[PAYMENT] ❌ Error: ${error.message}`);
+      console.error(error.stack);
+      res.status(500).json({ success: false, error: error.message });
+   }
+});
+
+// GET /:id/bill - fetch bill snapshot for printing
+router.get("/:id/bill", async (req, res) => {
+   try {
+      console.log(`[GET_BILL] Request for order: ${req.params.id}`);
+      const bill = await Bill.findOne({
+         orderId: req.params.id,
+         paymentStatus: { $ne: "voided" },
+      }).sort({ generatedAt: -1 });
+
+      if (!bill) {
+         console.log(`[GET_BILL] ❌ No bill found`);
+         return res
+            .status(404)
+            .json({ success: false, error: "No bill found for this order" });
+      }
+
+      console.log(
+         `[GET_BILL] ✅ Found: ${bill.billNumber}, locked: ${bill.isLocked}`,
+      );
+      res.json({ success: true, data: bill });
+   } catch (error) {
+      console.error(`[GET_BILL] ❌ ${error.message}`);
+      res.status(500).json({ success: false, error: error.message });
+   }
+});
+
+// DELETE /api/admin/inhouse/orders/:id
+router.delete("/orders/:id", async (req, res) => {
+   try {
+      console.log(`[DELETE_ORDER] Request for order: ${req.params.id}`);
+
+      const order = await Order.findById(req.params.id);
+      if (!order) {
+         return res
+            .status(404)
+            .json({ success: false, error: "Order not found" });
+      }
+
+      console.log(
+         `[DELETE_ORDER] Found: ${order.orderNumber}, status: ${order.orderStatus}, payment: ${order.paymentStatus}`,
+      );
+
+      // 1. Void and delete any associated Bill documents
+      const bills = await Bill.find({ orderId: order._id });
+      if (bills.length > 0) {
+         // Force delete even locked bills — admin decision
+         await Bill.deleteMany({ orderId: order._id });
+         console.log(
+            `[DELETE_ORDER] Deleted ${bills.length} bill(s) for this order`,
+         );
+      }
+
+      // 2. Free the table if this order was occupying it
+      if (
+         order.tableNumber &&
+         order.orderStatus !== "completed" &&
+         order.orderStatus !== "cancelled"
+      ) {
+         await Table.findOneAndUpdate(
+            { tableNumber: order.tableNumber, currentOrderId: order._id },
+            {
+               status: "available",
+               currentOrderId: null,
+               lastClearedAt: new Date(),
+            },
+         );
+         console.log(`[DELETE_ORDER] Table ${order.tableNumber} freed`);
+      }
+
+      // 3. Hard delete the order
+      await Order.findByIdAndDelete(order._id);
+      console.log(`[DELETE_ORDER] ✅ Order ${order.orderNumber} deleted`);
+
+      res.json({
+         success: true,
+         message: `Order ${order.orderNumber} deleted permanently`,
+      });
+   } catch (error) {
+      console.error(`[DELETE_ORDER] ❌ ${error.message}`);
       res.status(500).json({ success: false, error: error.message });
    }
 });
